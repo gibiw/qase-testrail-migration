@@ -21,8 +21,8 @@ class Milestones:
         milestones = []
         while True:
             tr_milestones = self.testrail.get_milestones(project['testrail_id'], limit, offset)
-            milestones += tr_milestones['milestones']
-            if tr_milestones['size'] < limit:
+            milestones += tr_milestones
+            if len(tr_milestones) < limit:
                 break
             offset += limit
         self.logger.log(f"[{project['code']}][Milestones] Found {len(milestones)} milestones")

@@ -34,8 +34,8 @@ class SharedSteps:
         shared_steps = []
         while True:
             tr_shared = self.testrail.get_shared_steps(project['testrail_id'], limit, offset)
-            shared_steps += tr_shared['shared_steps']
-            if tr_shared['size'] < limit:
+            shared_steps += tr_shared
+            if len(tr_shared) < limit:
                 break
             offset += limit
 

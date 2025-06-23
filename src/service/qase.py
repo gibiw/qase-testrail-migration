@@ -53,7 +53,7 @@ class QaseService:
             if api_response.status and api_response.result.entities:
                 return api_response.result.entities
         except ApiException as e:
-            self.logger.log("Exception when calling AuthorsApi->get_authors: %s\n" % e)
+            self.logger.log("Exception when calling AuthorsApi->get_authors: %s\n" % e, 'error')
 
     def get_all_users(self, limit=100):
         offset = 0
@@ -73,7 +73,7 @@ class QaseService:
             if api_response.status and api_response.result.entities:
                 return api_response.result.entities
         except ApiException as e:
-            self.logger.log("Exception when calling CustomFieldsApi->get_custom_fields: %s\n" % e)
+            self.logger.log("Exception when calling CustomFieldsApi->get_custom_fields: %s\n" % e, 'error')
 
     def create_custom_field(self, data) -> int:
         try:
@@ -86,7 +86,8 @@ class QaseService:
                 self.logger.log('Custom field created: ' + data['title'])
                 return api_response.result.id
         except ApiException as e:
-            self.logger.log('Exception when calling CustomFieldsApi->create_custom_field: %s\n' % e)
+            self.logger.log('Exception when calling CustomFieldsApi->create_custom_field: %s\n' % e, 'error')
+            self.logger.log('Data being sent to API: %s' % json.dumps(data, indent=2, default=str), 'error')
         return 0
 
     def create_configuration_group(self, project_code, title):
@@ -103,7 +104,7 @@ class QaseService:
                 self.logger.log('Configuration group created: ' + title)
                 return api_response.result.id
         except ApiException as e:
-            self.logger.log('Exception when calling CustomFieldsApi->create_configuration_group: %s\n' % e)
+            self.logger.log('Exception when calling CustomFieldsApi->create_configuration_group: %s\n' % e, 'error')
         return 0
 
     def create_configuration(self, project_code, title, group_id):
@@ -120,7 +121,7 @@ class QaseService:
                 self.logger.log('Configuration created: ' + title)
                 return api_response.result.id
         except ApiException as e:
-            self.logger.log('Exception when calling CustomFieldsApi->create_configuration: %s\n' % e)
+            self.logger.log('Exception when calling CustomFieldsApi->create_configuration: %s\n' % e, 'error')
         return 0
 
     def get_system_fields(self):
@@ -131,7 +132,7 @@ class QaseService:
             if api_response.status and api_response.result:
                 return api_response.result
         except ApiException as e:
-            self.logger.log("Exception when calling SystemFieldsApi->get_system_fields: %s\n" % e)
+            self.logger.log("Exception when calling SystemFieldsApi->get_system_fields: %s\n" % e, 'error')
 
     def prepare_custom_field_data(self, field, mappings) -> dict:
         data = {
@@ -200,7 +201,7 @@ class QaseService:
             if api_response.status and api_response.result:
                 return api_response.result
         except ApiException as e:
-            self.logger.log("Exception when calling ProjectsApi->get_projects: %s\n" % e)
+            self.logger.log("Exception when calling ProjectsApi->get_projects: %s\n" % e, 'error')
 
     def create_project(self, title, description, code, group_id=None):
         api_instance = ProjectsApi(self.client)
@@ -232,7 +233,8 @@ class QaseService:
                 self.logger.log(f'Project with the same code already exists: {code}. Using existing project.')
                 return True
 
-            self.logger.log('Exception when calling ProjectsApi->create_project: %s\n' % e)
+            self.logger.log('Exception when calling ProjectsApi->create_project: %s\n' % e, 'error')
+            self.logger.log('Data being sent to API: %s' % json.dumps(data, indent=2, default=str), 'error')
             return False
 
     def create_suite(self, code: str, title: str, description: str, parent_id=None) -> int:
@@ -258,6 +260,7 @@ class QaseService:
             return api_response.status
         except ApiException as e:
             self.logger.log("Exception when calling CasesApi->bulk: %s\n" % e)
+            self.logger.log(f"Request payload: {cases}")
         return False
 
     def create_run(self, run: list, project_code: str, cases: list = [], milestone_id = None):
@@ -292,7 +295,15 @@ class QaseService:
             response = api_instance.create_run(code=project_code, run_create=RunCreate(**data))
             return response.result.id
         except Exception as e:
-            self.logger.log(f'Exception when calling RunsApi->create_run: {e}')
+            self.logger.log(f'Exception when calling RunsApi->create_run: {e}', 'error')
+            self.logger.log('Data being sent to API: %s' % json.dumps(data, indent=2, default=str), 'error')
+
+    def complete_run(self, project_code, run_id):
+        api_instance = RunsApi(self.client)
+        try:
+            api_instance.complete_run(code=project_code, id=run_id)
+        except Exception as e:
+            self.logger.log(f'Exception when calling RunsApi->complete_run: {e}', 'error')
 
     def send_bulk_results(self, tr_run, results, qase_run_id, qase_code, mappings, cases_map):
         res = []
@@ -339,8 +350,8 @@ class QaseService:
                         #if (result['defects']):
                             #self.defects.append({"case_id": result["case_id"],"defects": result['defects'],"run_id": qase_run_id})
 
-                        if result['created_by']:
-                            data['author_id'] = mappings.get_user_id(result['created_by'])
+                        # if result['created_by']:
+                        #     data['author_id'] = mappings.get_user_id(result['created_by'])
 
                         if 'custom_step_results' in result and result['custom_step_results']:
                             data['steps'] = self.prepare_result_steps(result['custom_step_results'], mappings.result_statuses)
@@ -350,13 +361,18 @@ class QaseService:
             if len(res) > 0:
                 api_results = ResultsApi(self.client)
                 self.logger.log(f'Sending {len(res)} results to Qase')
-                api_results.create_result_bulk(
+                try:
+                    api_results.create_result_bulk(
                         code=qase_code,
                         id=int(qase_run_id),
                         resultcreate_bulk=ResultcreateBulk(
                             results=res
                         )
                     )
+                    self.logger.log(f'{len(res)} results sent to Qase')
+                except Exception as e:
+                    self.logger.log(f'Exception when calling ResultsApi->create_result_bulk: {e}', 'error')
+                    self.logger.log('Data being sent to API: %s' % json.dumps(res, indent=2, default=str), 'error')
 
     def prepare_result_steps(self, steps, status_map) -> list:
         allowed_statuses = ['passed', 'failed', 'blocked', 'skipped']
@@ -395,7 +411,7 @@ class QaseService:
                 elif component.endswith('s'):
                     total_seconds += int(component[:-1])
         except Exception as e:
-            self.logger.log(f'Exception when converting time string: {e}', 'warning')
+            self.logger.log(f'Exception when converting time string \'{time_str}\': {e}', 'warning')
 
         return total_seconds
 
@@ -409,7 +425,7 @@ class QaseService:
             if response.status:
                 return response.result[0].to_dict()
         except Exception as e:
-            self.logger.log(f'Exception when calling AttachmentsApi->upload_attachment: {e}')
+            self.logger.log(f'Exception when calling AttachmentsApi->upload_attachment: {e}', 'warning')
         return None
 
     def create_milestone(self, project_code, title, description, status, due_date):

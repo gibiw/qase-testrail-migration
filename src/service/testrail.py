@@ -66,7 +66,7 @@ class TestrailService:
         return self.repository.get_suites(project_id)
     
     def get_sections(self, project_id: int, limit: int = 100, offset: int = 0, suite_id: int = 0):
-        return self.repository.get_sections(project_id, limit, offset, suite_id)['sections']
+        return self.repository.get_sections(project_id, limit, offset, suite_id)
     
     def get_cases(self, project_id: int, suite_id: int = 0, limit: int = 250, offset: int = 0):
         return self.repository.get_cases(project_id, suite_id, limit, offset)

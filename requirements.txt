@@ -6,3 +6,4 @@ mysql-connector-python
 psutil
 pandas 
 openpyxl
+beautifulsoup4

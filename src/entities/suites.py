@@ -25,6 +25,7 @@ class Suites:
         self.mappings = mappings
         self.pools = pools
         self.attachments = Attachments(self.qase, self.testrail, self.logger, self.mappings, self.config, self.pools)
+        self.suite_i = 10000000
 
         self.suites_map = {}
         self.logger.divider()
@@ -43,7 +44,8 @@ class Suites:
                 for suite in suites:
                     self.logger.print_status('['+project['code']+'] Importing suites', i, len(suites), 1)
                     description = self.attachments.check_and_replace_attachments(suite['description'], project['code'])
-                    tg.create_task(self.import_suite(description, project, suite))
+                    tg.create_task(self.import_suite(description, project, suite, self.suite_i+i))
+                    i = i + 1
 
             else:
                 tg.create_task(self._create_suites(project['code'], project['testrail_id'], 0))
@@ -52,12 +54,12 @@ class Suites:
         
         return self.mappings
 
-    async def import_suite(self, description, project, suite):
+    async def import_suite(self, description, project, suite, i):
         # Hack to import into root suites: 1000000
         # Creating parent suite (suite -> suite)
-        await self._create_suite(project['code'], suite['name'], description=description, testrail_suite_id=1000000)
+        await self._create_suite(project['code'], suite['name'], description=description, testrail_suite_id=i)
         # Creating sections as suites (section -> suite)
-        await self._create_suites(project['code'], project['testrail_id'], suite['id'], parent_id=1000000)
+        await self._create_suites(project['code'], project['testrail_id'], suite['id'], parent_id=i)
 
     async def _create_suites(
             self,
@@ -72,7 +74,7 @@ class Suites:
 
         i = 1
         for section in sections:
-            self.logger.log(f"[{qase_code}][Suites] Creating suite in Qase: {section['name']} ({section['id']})")
+            self.logger.log(f"[{qase_code}][Suites] Creating suite in Qase: {section['name']} ({section['id']}). Parent: {parent_id}")
             self.logger.print_status('['+qase_code+'] Importing sections', i, len(sections), 1)
 
             if section['parent_id'] is None and parent_id is not None:

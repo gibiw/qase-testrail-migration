@@ -1,5 +1,4 @@
 import asyncio
-import math
 
 from ..service import QaseService, TestrailService
 from ..support import Logger, Mappings, ConfigManager as Config, Pools
@@ -48,6 +47,8 @@ class Runs:
                 i += 1
                 self.logger.print_status(f'[{self.project["code"]}] Importing runs', i, len(self.index), 1)
                 tg.create_task(self._import_run(run))
+        self.logger.log(f'[{self.project["code"]}][Runs] Test Run imported completed')
+        return
 
     async def _build_index(self) -> None:
         self.logger.log(f'[{self.project["code"]}][Runs] Building index for project {self.project["name"]}')
@@ -70,8 +71,8 @@ class Runs:
         while True:
             data['offset'] = offset
             runs = await self.pools.tr(self.testrail.get_runs, **data)
-            self.logger.log(f'[{self.project["code"]}][Runs] Found {str(len(runs["runs"]))} runs in TestRail')
-            for run in runs['runs']:
+            self.logger.log(f'[{self.project["code"]}][Runs] Found {str(len(runs))} runs in TestRail')
+            for run in runs:
                 self.index.append({
                     'id': run['id'],
                     'name': run['name'],
@@ -84,7 +85,7 @@ class Runs:
                     'author_id': self.mappings.get_user_id(run['created_by']),
                 })
 
-            if runs['size'] < limit:
+            if len(runs) < limit or len(runs) > limit:
                 break
 
             offset = offset + limit
@@ -98,7 +99,7 @@ class Runs:
         while True:
             self.logger.log(f'[{self.project["code"]}][Runs] Fetching plans from TestRail')
             plans = await self.pools.tr(self.testrail.get_plans, self.project['testrail_id'], limit, offset)
-            for plan in plans['plans']:
+            for plan in plans:
                 plan = self.testrail.get_plan(plan['id'])
                 if plan is not None and 'entries' in plan and plan['entries'] and len(plan['entries']) > 0:
                     self.logger.log(f'[{self.project["code"]}][Runs] Fetching runs for plan {plan["id"]}')
@@ -117,7 +118,7 @@ class Runs:
                                 'milestone_id': run['milestone_id'],
                                 'author_id': self.mappings.get_user_id(run['created_by']),
                             })
-            if plans['size'] < limit:
+            if len(plans) < limit:
                 break
 
             offset = offset + limit
@@ -133,8 +134,17 @@ class Runs:
         if run['config_ids'] is not None and len(run['config_ids']) > 0:
             run['configurations'] = self._replace_config_ids(run['config_ids'])
 
+        # Create a new test run in Qase
+        qase_run_id = await self.pools.qs(self.qase.create_run, run, self.project['code'], list(cases_map.values()), milestone_id)
+
+        if (qase_run_id):
+            self.logger.log(f'[{self.project["code"]}][Runs] Created a new run in Qase: {qase_run_id}')
+            self.mappings.stats.add_entity_count(self.project['code'], 'runs', 'qase')
             # Import results for the run
-        await self._import_results_for_run(run, cases_map, milestone_id)
+            await self._import_results_for_run(run, qase_run_id, cases_map)
+        else:
+            self.logger.log(f'[{self.project["code"]}][Runs] Failed to create a new run in Qase for TestRail run {run["name"]} [{run["id"]}]', 'error')
+        return
 
     def _replace_config_ids(self, config_ids: list) -> list:
         configs = []
@@ -143,7 +153,7 @@ class Runs:
                 configs.append(self.configurations[config_id])
         return configs
 
-    async def _import_results_for_run(self, run: list, cases_map: dict, milestone_id: int) -> None:
+    async def _import_results_for_run(self, run: list, qase_run_id: str, cases_map: dict) -> None:
         limit = 250
         offset = 0
         run_results = []
@@ -151,26 +161,10 @@ class Runs:
         while True:
             self.logger.log(f'[{self.project["code"]}][Runs] Fetching results for the run {run["name"]} [{run["id"]}]')
             results = await self.pools.tr(self.testrail.get_results, run['id'], limit, offset)
-            run_results = run_results + self._clean_results(results['results'])
+            run_results = run_results + self._clean_results(results)
             offset = offset + limit
-            if results['size'] < limit:
+            if len(results) < limit:
                 break
-
-        # Create a new test run in Qase
-        run["created_on"] = max(0, min(
-            [result["created_on"] if "created_on" in result and bool(result["created_on"]) else math.nan for result in run_results]
-            + [run["created_on"] if bool(run["created_on"]) else math.nan],
-            key=lambda x: (math.isnan(x), x)
-        ))
-
-        qase_run_id = await self.pools.qs(self.qase.create_run, run, self.project['code'], list(cases_map.values()), milestone_id)
-
-        if not bool(qase_run_id):
-            self.logger.log(f'[{self.project["code"]}][Runs] Failed to create a new run in Qase for TestRail run {run["name"]} [{run["id"]}]', 'error')
-            return
-
-        self.logger.log(f'[{self.project["code"]}][Runs] Created a new run in Qase: {qase_run_id}')
-        self.mappings.stats.add_entity_count(self.project['code'], 'runs', 'qase')
 
         self.logger.log(f'[{self.project["code"]}][Runs] Found {str(len(run_results))} results for the run {run["name"]} [{run["id"]}]')
 
@@ -186,6 +180,7 @@ class Runs:
                 i += 1
                 self.logger.log(f'[{self.project["code"]}][Runs] Importing results [Chunk {i}] for the run {run["name"]} [{run["id"]}]')
                 tg.create_task(self._import_results(run, qase_run_id, cases_map, chunk))
+        return 
 
     @staticmethod
     def _chunk_list_generator(results, chunk_size = 500):
@@ -247,6 +242,8 @@ class Runs:
             self.mappings,
             cases_map,
         )
+        self.logger.log(f'[{self.project["code"]}][Runs] Imported {str(len(results))} results for the run {tr_run["name"]} [{tr_run["id"]}]')
+
 
     @staticmethod
     def _merge_comments_with_same_test_id(test_results):
@@ -284,10 +281,10 @@ class Runs:
 
         while process:
             tests = await self.pools.tr(self.testrail.get_tests, run['id'], limit, offset)
-            if tests['size'] < limit:
+            if len(tests) < limit:
                 process = False
             offset = offset + limit
-            for test in tests['tests']:
+            for test in tests:
                 if test['case_id']:
                     cases_map[test['id']] = test['case_id']
         return cases_map

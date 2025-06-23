@@ -122,7 +122,7 @@ class Users:
 
             self.testrail_users = self.testrail_users + users
 
-            if len(users) < limit:
+            if len(users) < limit or len(users) > limit:
                 break
 
             offset += limit

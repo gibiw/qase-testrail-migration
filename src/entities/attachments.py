@@ -43,7 +43,7 @@ class Attachments:
         result = []
         for attachment in attachments:
             if attachment:
-                attachment = re.sub(r'^E_', '', attachment)
+                attachment = re.sub(r'^E_', '', str(attachment))
             if attachment and attachment not in self.mappings.attachments_map:
                 self.logger.log(f'[Attachments] Attachment {attachment} not found in attachments_map (array)', 'warning')
                 self.replace_failover(attachment, code)
@@ -105,6 +105,7 @@ class Attachments:
         )
 
     def import_all_attachments(self) -> Mappings:
+        return self.mappings
         return asyncio.run(self.import_all_attachments_async())
 
     async def import_all_attachments_async(self) -> Mappings:

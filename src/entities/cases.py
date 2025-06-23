@@ -62,18 +62,19 @@ class Cases:
             if suite_id is None:
                 suite_id = 0
             cases = await self.pools.tr(self.testrail.get_cases, self.project['testrail_id'], suite_id, limit, offset)
-            self.mappings.stats.add_entity_count(self.project['code'], 'cases', 'testrail', cases['size'])
+            self.mappings.stats.add_entity_count(self.project['code'], 'cases', 'testrail', len(cases))
             if cases:
-                self.logger.print_status('['+self.project['code']+'] Importing test cases', self.total, self.total+cases['size'], 1)
-                self.logger.log(f'[{self.project["code"]}][Tests] Importing {cases["size"]} cases from {offset} to {offset + limit} for suite {suite_id}')
+                self.logger.print_status('['+self.project['code']+'] Importing test cases', self.total, self.total+len(cases), 1)
+                self.logger.log(f'[{self.project["code"]}][Tests] Importing {len(cases)} cases from {offset} to {offset + limit} for suite {suite_id}')
                 data = await self._prepare_cases(cases)
                 if data:
+                    self.logger.log(f'[{self.project["code"]}][Tests] Sending {len(data)} cases from {offset} to {offset + limit} for suite {suite_id}')
                     status = await self.pools.qs(self.qase.create_cases, self.project['code'], data)
                     if status:
-                        self.mappings.stats.add_entity_count(self.project['code'], 'cases', 'qase', cases['size'])
-                self.total = self.total + cases['size']
+                        self.mappings.stats.add_entity_count(self.project['code'], 'cases', 'qase', len(cases))
+                self.total = self.total + len(cases)
                 self.logger.print_status('['+self.project['code']+'] Importing test cases', self.total, self.total, 1)
-            return cases['size']
+            return len(cases)
         except Exception as e:
             self.logger.log(f"[{self.project['code']}][Tests] Error processing cases for suite {suite_id}: {e}", 'error')
             return 0
@@ -81,7 +82,7 @@ class Cases:
     async def _prepare_cases(self, cases: List) -> List:
         result = []
         async with asyncio.TaskGroup() as tg:
-            for case in cases['cases']:
+            for case in cases:
                 tg.create_task(self._prepare_case(case, result))
 
         return result
@@ -136,8 +137,8 @@ class Cases:
         except Exception as e:
             self.logger.log(f'[{self.project["code"]}][Tests] Failed to get attachments for case {case["title"]}: {e}', 'error')
             return data
-        self.logger.log(f'[{self.project["code"]}][Tests] Found {len(attachments["attachments"])} attachments for case {case["title"]}')
-        for attachment in attachments['attachments']:
+        self.logger.log(f'[{self.project["code"]}][Tests] Found {len(attachments)} attachments for case {case["title"]}')
+        for attachment in attachments:
             try:
                 id = attachment['id']
                 if 'data_id' in attachment:

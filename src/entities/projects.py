@@ -71,8 +71,8 @@ class Projects:
         projects = []
         while True:
             result = await self.pools.tr(self.testrail.get_projects, limit, offset)
-            projects = projects + result['projects']
-            if result['size'] < limit:
+            projects = projects + result
+            if len(result) < limit:
                 break
             offset += limit
         
