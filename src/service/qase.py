@@ -291,6 +291,17 @@ class QaseService:
         if len(cases) > 0:
             data['cases'] = cases
 
+        # Preflight truncation logic
+        if 'title' in data and len(data['title']) > 255:
+            original_length = len(data['title'])
+            self.logger.log(f'Title exceeds 255 characters (length: {original_length}). Truncating to 255 characters.', 'warning')
+            data['title'] = data['title'][:255]
+
+        if 'description' in data and len(data['description']) > 10000:
+            original_length = len(data['description'])
+            self.logger.log(f'Description exceeds 10,000 characters (length: {original_length}). Truncating to 10,000 characters.', 'warning')
+            data['description'] = data['description'][:10000]
+
         try:
             response = api_instance.create_run(code=project_code, run_create=RunCreate(**data))
             return response.result.id
