@@ -1,6 +1,6 @@
 # qase-testrail-migration
 
-This script helps you to migrate your test cases from TestRail to Qase. It's written in Python 3.11 and uses [Qase API](https://qase.io/api/v1/) and [TestRail API](http://docs.gurock.com/testrail-api2/start).
+This script helps you to migrate your test cases from TestRail to Qase. It's written in Python 3.11 and uses [Qase API](https://developers.qase.io/reference/introduction-to-the-qase-api) and [TestRail API](https://support.testrail.com/hc/en-us/articles/7077083596436-Introduction-to-the-TestRail-API).
 
 ## How to use
 
