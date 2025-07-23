@@ -266,6 +266,11 @@ class QaseService:
     def create_run(self, run: list, project_code: str, cases: list = [], milestone_id = None):
         api_instance = RunsApi(self.client)
 
+        # Skip empty runs - check if cases list is empty before creating run
+        if not cases:
+            self.logger.log(f'Skipping run creation for "{run["name"]}" - no cases found', 'warning')
+            return None
+
         data = {
             'start_time': datetime.utcfromtimestamp(run['created_on']).strftime('%Y-%m-%d %H:%M:%S'),
             'author_id': run['author_id']
@@ -283,7 +288,16 @@ class QaseService:
             data['configurations'] = run['configurations']
 
         if run['is_completed']:
-            data['end_time'] = datetime.fromtimestamp(run['completed_on']).strftime('%Y-%m-%d %H:%M:%S')
+            # Normalize end_time - ensure end_ts >= start_ts
+            if run['completed_on'] is None:
+                # If completed_on is None, set it equal to created_on
+                data['end_time'] = datetime.utcfromtimestamp(run['created_on']).strftime('%Y-%m-%d %H:%M:%S')
+            elif run['completed_on'] < run['created_on']:
+                # If completed_on < created_on, log info and set end_ts = start_ts
+                self.logger.log(f'Run "{run["name"]}" has completed_on ({run["completed_on"]}) before created_on ({run["created_on"]}). Setting end_time equal to start_time.', 'info')
+                data['end_time'] = datetime.utcfromtimestamp(run['created_on']).strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                data['end_time'] = datetime.utcfromtimestamp(run['completed_on']).strftime('%Y-%m-%d %H:%M:%S')
 
         if milestone_id:
             data['milestone_id'] = milestone_id
