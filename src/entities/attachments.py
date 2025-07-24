@@ -46,8 +46,14 @@ class Attachments:
                 attachment = re.sub(r'^E_', '', str(attachment))
             if attachment and attachment not in self.mappings.attachments_map:
                 self.logger.log(f'[Attachments] Attachment {attachment} not found in attachments_map (array)', 'warning')
+                # Try to replace in failover and check again
                 self.replace_failover(attachment, code)
-            if attachment and attachment in self.mappings.attachments_map and self.mappings.attachments_map[attachment] and 'hash' in self.mappings.attachments_map[attachment]:
+                # Check if the attachment was successfully added to the map
+                if attachment in self.mappings.attachments_map and self.mappings.attachments_map[attachment] and 'hash' in self.mappings.attachments_map[attachment]:
+                    result.append(self.mappings.attachments_map[attachment]['hash'])
+                else:
+                    self.logger.log(f'[Attachments] Attachment {attachment} could not be processed, skipping', 'warning')
+            elif attachment and attachment in self.mappings.attachments_map and self.mappings.attachments_map[attachment] and 'hash' in self.mappings.attachments_map[attachment]:
                 result.append(self.mappings.attachments_map[attachment]['hash'])
         return result
     
@@ -105,7 +111,6 @@ class Attachments:
         )
 
     def import_all_attachments(self) -> Mappings:
-        return self.mappings
         return asyncio.run(self.import_all_attachments_async())
 
     async def import_all_attachments_async(self) -> Mappings:

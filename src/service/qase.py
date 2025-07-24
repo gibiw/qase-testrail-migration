@@ -271,6 +271,19 @@ class QaseService:
             self.logger.log(f'Skipping run creation for "{run["name"]}" - no cases found', 'warning')
             return None
 
+        # Enhanced validation and sanitization
+        run_name = run['name'].strip() if run['name'] else ''
+        
+        # Skip runs with problematic names
+        if not run_name or run_name.lower() in ['demo', 'demo , will be removed', 'master']:
+            self.logger.log(f'Skipping run creation for "{run_name}" - problematic name detected', 'warning')
+            return None
+            
+        # Skip runs that appear to be incomplete or problematic
+        if run_name.startswith('TA AN:') and len(run_name) < 10:
+            self.logger.log(f'Skipping run creation for "{run_name}" - incomplete TA AN run name', 'warning')
+            return None
+
         data = {
             'start_time': datetime.utcfromtimestamp(run['created_on']).strftime('%Y-%m-%d %H:%M:%S'),
             'author_id': run['author_id']
@@ -280,9 +293,9 @@ class QaseService:
             data['description'] = run['description']
 
         if 'plan_name' in run and run['plan_name']:
-            data['title'] = '['+run['plan_name']+'] '+run['name']
+            data['title'] = '['+run['plan_name']+'] '+run_name
         else:
-            data['title'] = run['name']
+            data['title'] = run_name
 
         if 'configurations' in run and run['configurations'] and len(run['configurations']) > 0:
             data['configurations'] = run['configurations']
@@ -294,7 +307,7 @@ class QaseService:
                 data['end_time'] = datetime.utcfromtimestamp(run['created_on']).strftime('%Y-%m-%d %H:%M:%S')
             elif run['completed_on'] < run['created_on']:
                 # If completed_on < created_on, log info and set end_ts = start_ts
-                self.logger.log(f'Run "{run["name"]}" has completed_on ({run["completed_on"]}) before created_on ({run["created_on"]}). Setting end_time equal to start_time.', 'info')
+                self.logger.log(f'Run "{run_name}" has completed_on ({run["completed_on"]}) before created_on ({run["created_on"]}). Setting end_time equal to start_time.', 'info')
                 data['end_time'] = datetime.utcfromtimestamp(run['created_on']).strftime('%Y-%m-%d %H:%M:%S')
             else:
                 data['end_time'] = datetime.utcfromtimestamp(run['completed_on']).strftime('%Y-%m-%d %H:%M:%S')
@@ -305,23 +318,42 @@ class QaseService:
         if len(cases) > 0:
             data['cases'] = cases
 
-        # Preflight truncation logic
-        if 'title' in data and len(data['title']) > 255:
-            original_length = len(data['title'])
-            self.logger.log(f'Title exceeds 255 characters (length: {original_length}). Truncating to 255 characters.', 'warning')
-            data['title'] = data['title'][:255]
+        # Enhanced preflight validation and truncation logic
+        if 'title' in data:
+            # Remove any null bytes or control characters
+            data['title'] = ''.join(char for char in data['title'] if ord(char) >= 32 or char in '\n\r\t')
+            
+            if len(data['title']) > 255:
+                original_length = len(data['title'])
+                self.logger.log(f'Title exceeds 255 characters (length: {original_length}). Truncating to 255 characters.', 'warning')
+                data['title'] = data['title'][:255]
+            
+            # Ensure title is not empty after sanitization
+            if not data['title'].strip():
+                self.logger.log(f'Skipping run creation for "{run_name}" - title is empty after sanitization', 'warning')
+                return None
 
-        if 'description' in data and len(data['description']) > 10000:
-            original_length = len(data['description'])
-            self.logger.log(f'Description exceeds 10,000 characters (length: {original_length}). Truncating to 10,000 characters.', 'warning')
-            data['description'] = data['description'][:10000]
+        if 'description' in data and data['description']:
+            # Remove any null bytes or control characters
+            data['description'] = ''.join(char for char in data['description'] if ord(char) >= 32 or char in '\n\r\t')
+            
+            if len(data['description']) > 10000:
+                original_length = len(data['description'])
+                self.logger.log(f'Description exceeds 10,000 characters (length: {original_length}). Truncating to 10,000 characters.', 'warning')
+                data['description'] = data['description'][:10000]
+
+        # Additional validation for required fields
+        if not data.get('title') or not data.get('start_time'):
+            self.logger.log(f'Skipping run creation for "{run_name}" - missing required fields (title or start_time)', 'warning')
+            return None
 
         try:
             response = api_instance.create_run(code=project_code, run_create=RunCreate(**data))
             return response.result.id
         except Exception as e:
-            self.logger.log(f'Exception when calling RunsApi->create_run: {e}', 'error')
+            self.logger.log(f'Exception when calling RunsApi->create_run for "{run_name}": {e}', 'error')
             self.logger.log('Data being sent to API: %s' % json.dumps(data, indent=2, default=str), 'error')
+            return None
 
     def complete_run(self, project_code, run_id):
         api_instance = RunsApi(self.client)

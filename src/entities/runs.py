@@ -73,6 +73,22 @@ class Runs:
             runs = await self.pools.tr(self.testrail.get_runs, **data)
             self.logger.log(f'[{self.project["code"]}][Runs] Found {str(len(runs))} runs in TestRail')
             for run in runs:
+                # Basic validation of run data
+                if not run.get('name') or not run.get('created_on'):
+                    self.logger.log(f'[{self.project["code"]}][Runs] Skipping run {run.get("id", "unknown")} - missing required fields', 'warning')
+                    continue
+                    
+                # Skip runs with problematic names
+                run_name = run['name'].strip()
+                if not run_name or run_name.lower() in ['demo', 'demo , will be removed', 'master']:
+                    self.logger.log(f'[{self.project["code"]}][Runs] Skipping run "{run_name}" [{run["id"]}] - problematic name', 'warning')
+                    continue
+                    
+                # Skip incomplete TA AN runs
+                if run_name.startswith('TA AN:') and len(run_name) < 10:
+                    self.logger.log(f'[{self.project["code"]}][Runs] Skipping run "{run_name}" [{run["id"]}] - incomplete TA AN run name', 'warning')
+                    continue
+                
                 self.index.append({
                     'id': run['id'],
                     'name': run['name'],
@@ -105,6 +121,22 @@ class Runs:
                     self.logger.log(f'[{self.project["code"]}][Runs] Fetching runs for plan {plan["id"]}')
                     for entry in plan['entries']:
                         for run in entry['runs']:
+                            # Basic validation of run data
+                            if not run.get('name') or not run.get('created_on'):
+                                self.logger.log(f'[{self.project["code"]}][Runs] Skipping plan run {run.get("id", "unknown")} - missing required fields', 'warning')
+                                continue
+                                
+                            # Skip runs with problematic names
+                            run_name = run['name'].strip()
+                            if not run_name or run_name.lower() in ['demo', 'demo , will be removed', 'master']:
+                                self.logger.log(f'[{self.project["code"]}][Runs] Skipping plan run "{run_name}" [{run["id"]}] - problematic name', 'warning')
+                                continue
+                                
+                            # Skip incomplete TA AN runs
+                            if run_name.startswith('TA AN:') and len(run_name) < 10:
+                                self.logger.log(f'[{self.project["code"]}][Runs] Skipping plan run "{run_name}" [{run["id"]}] - incomplete TA AN run name', 'warning')
+                                continue
+                            
                             self.index.append({
                                 'id': run['id'],
                                 'name': run['name'],
@@ -125,25 +157,28 @@ class Runs:
         self.logger.log(f'[{self.project["code"]}][Runs] Items in index: {str(len(self.index))}')
 
     async def _import_run(self, run: list) -> None:
-        # Load testrail tests from the run ()
-        cases_map = await self.__get_cases_for_run(run)
-        self.logger.log(f'[{self.project["code"]}][Runs] Found {str(len(cases_map))} cases in the run {run["name"]} [{run["id"]}]')
+        try:
+            # Load testrail tests from the run ()
+            cases_map = await self.__get_cases_for_run(run)
+            self.logger.log(f'[{self.project["code"]}][Runs] Found {str(len(cases_map))} cases in the run {run["name"]} [{run["id"]}]')
 
-        milestone_id = self.mappings.milestones[self.project['code']][run['milestone_id']] if run['milestone_id'] in self.mappings.milestones[self.project['code']] else None
+            milestone_id = self.mappings.milestones[self.project['code']][run['milestone_id']] if run['milestone_id'] in self.mappings.milestones[self.project['code']] else None
 
-        if run['config_ids'] is not None and len(run['config_ids']) > 0:
-            run['configurations'] = self._replace_config_ids(run['config_ids'])
+            if run['config_ids'] is not None and len(run['config_ids']) > 0:
+                run['configurations'] = self._replace_config_ids(run['config_ids'])
 
-        # Create a new test run in Qase
-        qase_run_id = await self.pools.qs(self.qase.create_run, run, self.project['code'], list(cases_map.values()), milestone_id)
+            # Create a new test run in Qase
+            qase_run_id = await self.pools.qs(self.qase.create_run, run, self.project['code'], list(cases_map.values()), milestone_id)
 
-        if (qase_run_id):
-            self.logger.log(f'[{self.project["code"]}][Runs] Created a new run in Qase: {qase_run_id}')
-            self.mappings.stats.add_entity_count(self.project['code'], 'runs', 'qase')
-            # Import results for the run
-            await self._import_results_for_run(run, qase_run_id, cases_map)
-        else:
-            self.logger.log(f'[{self.project["code"]}][Runs] Failed to create a new run in Qase for TestRail run {run["name"]} [{run["id"]}]', 'error')
+            if (qase_run_id):
+                self.logger.log(f'[{self.project["code"]}][Runs] Created a new run in Qase: {qase_run_id}')
+                self.mappings.stats.add_entity_count(self.project['code'], 'runs', 'qase')
+                # Import results for the run
+                await self._import_results_for_run(run, qase_run_id, cases_map)
+            else:
+                self.logger.log(f'[{self.project["code"]}][Runs] Failed to create a new run in Qase for TestRail run {run["name"]} [{run["id"]}]', 'error')
+        except Exception as e:
+            self.logger.log(f'[{self.project["code"]}][Runs] Exception during import of run {run["name"]} [{run["id"]}]: {e}', 'error')
         return
 
     def _replace_config_ids(self, config_ids: list) -> list:
