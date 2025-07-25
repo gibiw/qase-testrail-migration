@@ -162,6 +162,11 @@ class Runs:
             cases_map = await self.__get_cases_for_run(run)
             self.logger.log(f'[{self.project["code"]}][Runs] Found {str(len(cases_map))} cases in the run {run["name"]} [{run["id"]}]')
 
+            # Skip runs with no cases to prevent "No cases" API errors
+            if not cases_map or len(cases_map) == 0:
+                self.logger.log(f'[{self.project["code"]}][Runs] Skipping run {run["name"]} [{run["id"]}] - no cases found', 'warning')
+                return
+
             milestone_id = self.mappings.milestones[self.project['code']][run['milestone_id']] if run['milestone_id'] in self.mappings.milestones[self.project['code']] else None
 
             if run['config_ids'] is not None and len(run['config_ids']) > 0:
@@ -309,17 +314,21 @@ class Runs:
         return processed_results
 
     async def __get_cases_for_run(self, run: list) -> dict:
-        cases_map = {}
-        limit = 250
-        offset = 0
-        process = True
+        try:
+            cases_map = {}
+            limit = 250
+            offset = 0
+            process = True
 
-        while process:
-            tests = await self.pools.tr(self.testrail.get_tests, run['id'], limit, offset)
-            if len(tests) < limit:
-                process = False
-            offset = offset + limit
-            for test in tests:
-                if test['case_id']:
-                    cases_map[test['id']] = test['case_id']
-        return cases_map
+            while process:
+                tests = await self.pools.tr(self.testrail.get_tests, run['id'], limit, offset)
+                if len(tests) < limit:
+                    process = False
+                offset = offset + limit
+                for test in tests:
+                    if test.get('case_id') and test['case_id'] is not None:
+                        cases_map[test['id']] = test['case_id']
+            return cases_map
+        except Exception as e:
+            self.logger.log(f'[{self.project["code"]}][Runs] Exception getting cases for run {run["name"]} [{run["id"]}]: {e}', 'error')
+            return {}

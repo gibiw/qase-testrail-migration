@@ -267,7 +267,7 @@ class QaseService:
         api_instance = RunsApi(self.client)
 
         # Skip empty runs - check if cases list is empty before creating run
-        if not cases:
+        if not cases or len(cases) == 0:
             self.logger.log(f'Skipping run creation for "{run["name"]}" - no cases found', 'warning')
             return None
 
@@ -315,8 +315,14 @@ class QaseService:
         if milestone_id:
             data['milestone_id'] = milestone_id
 
-        if len(cases) > 0:
-            data['cases'] = cases
+        if cases and len(cases) > 0:
+            # Filter out any None or invalid case IDs
+            valid_cases = [case_id for case_id in cases if case_id is not None and case_id != '']
+            if valid_cases:
+                data['cases'] = valid_cases
+            else:
+                self.logger.log(f'Skipping run creation for "{run_name}" - no valid case IDs found', 'warning')
+                return None
 
         # Enhanced preflight validation and truncation logic
         if 'title' in data:
