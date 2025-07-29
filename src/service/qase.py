@@ -203,12 +203,18 @@ class QaseService:
     def __split_values(string: str, delimiter: str = ',') -> dict:
         items = string.split('\n')  # split items into a list
         result = {}
+        seen_titles = set()  # Track seen titles to avoid duplicates
+        
         for item in items:
             if item == '':
                 continue
             # split each item into a key and a value
             key, value = item.split(delimiter)
-            result[key] = value
+            # Trim the title and skip empty titles
+            trimmed_value = value.strip()
+            if trimmed_value and trimmed_value not in seen_titles:
+                result[key] = trimmed_value
+                seen_titles.add(trimmed_value)
         return result
 
     def get_projects(self, limit=100, offset=0):

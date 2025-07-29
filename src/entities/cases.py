@@ -136,7 +136,15 @@ class Cases:
         refs = [ref.strip() for ref in case['refs'].split(',')]
         url = self.config.get('tests.refs.url').rstrip('/')
 
-        processed_refs = [self._get_ref(ref, url) for ref in refs]
+        processed_refs = []
+        for ref in refs:
+            if ref.startswith('http'):
+                processed_ref = f"[{ref}]({ref})"
+            else:
+                processed_ref = f"[{ref}]({url}/{ref})"
+            processed_ref = self.__format_links_as_markdown(processed_ref)
+            processed_refs.append(processed_ref)
+
         data['custom_field'][str(self.mappings.refs_id)
                              ] = '\n'.join(processed_refs)
 
