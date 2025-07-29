@@ -238,8 +238,8 @@ class Cases:
             if type(value) == str or type(value) == int:
                 if str(value) not in values.keys():
                     self.logger.log(
-                        f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has invalid value {value}', 'warning')
-                    return None
+                        f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has invalid value {value}, but proceeding anyway', 'warning')
+                    return value  # Return the original value instead of None
             elif type(value) == list:
                 filtered_values = []
                 for item in value:
@@ -247,13 +247,13 @@ class Cases:
                         filtered_values.append(item)
                     else:
                         self.logger.log(
-                            f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has invalid value {value}', 'warning')
+                            f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has invalid value {item}, but proceeding anyway', 'warning')
                 if len(filtered_values) == 0:
-                    return None
+                    return value  # Return the original value instead of None
                 else:
                     return filtered_values
             return value
-        return None
+        return value  # Return the original value instead of None
 
     def __split_values(self, string: str, delimiter: str = ',') -> dict:
         items = string.split('\n')  # split items into a list

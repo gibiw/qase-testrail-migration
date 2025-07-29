@@ -49,11 +49,13 @@ class QaseService:
         try:
             api_instance = AuthorsApi(self.client)
             # Get all authors.
-            api_response = api_instance.get_authors(limit=limit, offset=offset, type="user")
+            api_response = api_instance.get_authors(
+                limit=limit, offset=offset, type="user")
             if api_response.status and api_response.result.entities:
                 return api_response.result.entities
         except ApiException as e:
-            self.logger.log("Exception when calling AuthorsApi->get_authors: %s\n" % e, 'error')
+            self.logger.log(
+                "Exception when calling AuthorsApi->get_authors: %s\n" % e, 'error')
 
     def get_all_users(self, limit=100):
         offset = 0
@@ -69,25 +71,31 @@ class QaseService:
         try:
             api_instance = CustomFieldsApi(self.client)
             # Get all custom fields.
-            api_response = api_instance.get_custom_fields(entity='case', limit=100)
+            api_response = api_instance.get_custom_fields(
+                entity='case', limit=100)
             if api_response.status and api_response.result.entities:
                 return api_response.result.entities
         except ApiException as e:
-            self.logger.log("Exception when calling CustomFieldsApi->get_custom_fields: %s\n" % e, 'error')
+            self.logger.log(
+                "Exception when calling CustomFieldsApi->get_custom_fields: %s\n" % e, 'error')
 
     def create_custom_field(self, data) -> int:
         try:
             api_instance = CustomFieldsApi(self.client)
             # Create a custom field.
-            api_response = api_instance.create_custom_field(custom_field_create=CustomFieldCreate(**data))
+            api_response = api_instance.create_custom_field(
+                custom_field_create=CustomFieldCreate(**data))
             if not api_response.status:
-                self.logger.log('Error creating custom field: ' + data['title'])
+                self.logger.log(
+                    'Error creating custom field: ' + data['title'])
             else:
                 self.logger.log('Custom field created: ' + data['title'])
                 return api_response.result.id
         except ApiException as e:
-            self.logger.log('Exception when calling CustomFieldsApi->create_custom_field: %s\n' % e, 'error')
-            self.logger.log('Data being sent to API: %s' % json.dumps(data, indent=2, default=str), 'error')
+            self.logger.log(
+                'Exception when calling CustomFieldsApi->create_custom_field: %s\n' % e, 'error')
+            self.logger.log('Data being sent to API: %s' %
+                            json.dumps(data, indent=2, default=str), 'error')
         return 0
 
     def create_configuration_group(self, project_code, title):
@@ -96,7 +104,8 @@ class QaseService:
             # Create a custom field.
             api_response = api_instance.create_configuration_group(
                 code=project_code,
-                configuration_group_create=ConfigurationGroupCreate(title=title)
+                configuration_group_create=ConfigurationGroupCreate(
+                    title=title)
             )
             if not api_response.status:
                 self.logger.log('Error creating configuration group: ' + title)
@@ -104,7 +113,8 @@ class QaseService:
                 self.logger.log('Configuration group created: ' + title)
                 return api_response.result.id
         except ApiException as e:
-            self.logger.log('Exception when calling CustomFieldsApi->create_configuration_group: %s\n' % e, 'error')
+            self.logger.log(
+                'Exception when calling CustomFieldsApi->create_configuration_group: %s\n' % e, 'error')
         return 0
 
     def create_configuration(self, project_code, title, group_id):
@@ -113,7 +123,8 @@ class QaseService:
             # Create a custom field.
             api_response = api_instance.create_configuration(
                 code=project_code,
-                configuration_create=ConfigurationCreate(title=title, group_id=group_id)
+                configuration_create=ConfigurationCreate(
+                    title=title, group_id=group_id)
             )
             if not api_response.status:
                 self.logger.log('Error creating configuration: ' + title)
@@ -121,7 +132,8 @@ class QaseService:
                 self.logger.log('Configuration created: ' + title)
                 return api_response.result.id
         except ApiException as e:
-            self.logger.log('Exception when calling CustomFieldsApi->create_configuration: %s\n' % e, 'error')
+            self.logger.log(
+                'Exception when calling CustomFieldsApi->create_configuration: %s\n' % e, 'error')
         return 0
 
     def get_system_fields(self):
@@ -132,7 +144,8 @@ class QaseService:
             if api_response.status and api_response.result:
                 return api_response.result
         except ApiException as e:
-            self.logger.log("Exception when calling SystemFieldsApi->get_system_fields: %s\n" % e, 'error')
+            self.logger.log(
+                "Exception when calling SystemFieldsApi->get_system_fields: %s\n" % e, 'error')
 
     def prepare_custom_field_data(self, field, mappings) -> dict:
         data = {
@@ -153,24 +166,28 @@ class QaseService:
                 for config in field['configs']:
                     for id in config['context']['project_ids']:
                         if id in mappings.project_map:
-                            data['projects_codes'].append(mappings.project_map[id])
+                            data['projects_codes'].append(
+                                mappings.project_map[id])
 
         if self.__get_default_value(field):
             data['default_value'] = self.__get_default_value(field)
         if field['type_id'] == 12 or field['type_id'] == 6:
             if len(field['configs']) > 0:
-                values = self.__split_values(field['configs'][0]['options']['items'])
+                values = self.__split_values(
+                    field['configs'][0]['options']['items'])
                 field['qase_values'] = {}
                 for key, value in values.items():
                     data['value'].append(
                         CustomFieldCreateValueInner(
-                            id=int(key)+1,  # hack as in testrail ids can start from 0
+                            # hack as in testrail ids can start from 0
+                            id=int(key)+1,
                             title=value,
                         ),
                     )
                     field['qase_values'][int(key)+1] = value
             else:
-                self.logger.log('Error creating custom field: ' + field['label'] + '. No options found', 'warning')
+                self.logger.log('Error creating custom field: ' +
+                                field['label'] + '. No options found', 'warning')
         return data
 
     @staticmethod
@@ -189,7 +206,8 @@ class QaseService:
         for item in items:
             if item == '':
                 continue
-            key, value = item.split(delimiter)  # split each item into a key and a value
+            # split each item into a key and a value
+            key, value = item.split(delimiter)
             result[key] = value
         return result
 
@@ -201,7 +219,8 @@ class QaseService:
             if api_response.status and api_response.result:
                 return api_response.result
         except ApiException as e:
-            self.logger.log("Exception when calling ProjectsApi->get_projects: %s\n" % e, 'error')
+            self.logger.log(
+                "Exception when calling ProjectsApi->get_projects: %s\n" % e, 'error')
 
     def create_project(self, title, description, code, group_id=None):
         api_instance = ProjectsApi(self.client)
@@ -230,11 +249,14 @@ class QaseService:
         except ApiException as e:
             error = json.loads(e.body)
             if error['status'] is False and error['errorFields'][0]['error'] == 'Project with the same code already exists.':
-                self.logger.log(f'Project with the same code already exists: {code}. Using existing project.')
+                self.logger.log(
+                    f'Project with the same code already exists: {code}. Using existing project.')
                 return True
 
-            self.logger.log('Exception when calling ProjectsApi->create_project: %s\n' % e, 'error')
-            self.logger.log('Data being sent to API: %s' % json.dumps(data, indent=2, default=str), 'error')
+            self.logger.log(
+                'Exception when calling ProjectsApi->create_project: %s\n' % e, 'error')
+            self.logger.log('Data being sent to API: %s' %
+                            json.dumps(data, indent=2, default=str), 'error')
             return False
 
     def create_suite(self, code: str, title: str, description: str, parent_id=None) -> int:
@@ -260,28 +282,17 @@ class QaseService:
             return api_response.status
         except ApiException as e:
             self.logger.log("Exception when calling CasesApi->bulk: %s\n" % e)
+            self.logger.log("Response body: %s\n" % e.body)
             self.logger.log(f"Request payload: {cases}")
         return False
 
-    def create_run(self, run: list, project_code: str, cases: list = [], milestone_id = None):
+    def create_run(self, run: list, project_code: str, cases: list = [], milestone_id=None):
         api_instance = RunsApi(self.client)
 
         # Skip empty runs - check if cases list is empty before creating run
         if not cases or len(cases) == 0:
-            self.logger.log(f'Skipping run creation for "{run["name"]}" - no cases found', 'warning')
-            return None
-
-        # Enhanced validation and sanitization
-        run_name = run['name'].strip() if run['name'] else ''
-        
-        # Skip runs with problematic names
-        if not run_name or run_name.lower() in ['demo', 'demo , will be removed', 'master']:
-            self.logger.log(f'Skipping run creation for "{run_name}" - problematic name detected', 'warning')
-            return None
-            
-        # Skip runs that appear to be incomplete or problematic
-        if run_name.startswith('TA AN:') and len(run_name) < 10:
-            self.logger.log(f'Skipping run creation for "{run_name}" - incomplete TA AN run name', 'warning')
+            self.logger.log(
+                f'Skipping run creation for "{run["name"]}" - no cases found', 'warning')
             return None
 
         data = {
@@ -293,9 +304,9 @@ class QaseService:
             data['description'] = run['description']
 
         if 'plan_name' in run and run['plan_name']:
-            data['title'] = '['+run['plan_name']+'] '+run_name
+            data['title'] = '['+run['plan_name']+'] '+run['name']
         else:
-            data['title'] = run_name
+            data['title'] = run['name']
 
         if 'configurations' in run and run['configurations'] and len(run['configurations']) > 0:
             data['configurations'] = run['configurations']
@@ -304,61 +315,33 @@ class QaseService:
             # Normalize end_time - ensure end_ts >= start_ts
             if run['completed_on'] is None:
                 # If completed_on is None, set it equal to created_on
-                data['end_time'] = datetime.utcfromtimestamp(run['created_on']).strftime('%Y-%m-%d %H:%M:%S')
+                data['end_time'] = datetime.utcfromtimestamp(
+                    run['created_on']).strftime('%Y-%m-%d %H:%M:%S')
             elif run['completed_on'] < run['created_on']:
                 # If completed_on < created_on, log info and set end_ts = start_ts
-                self.logger.log(f'Run "{run_name}" has completed_on ({run["completed_on"]}) before created_on ({run["created_on"]}). Setting end_time equal to start_time.', 'info')
-                data['end_time'] = datetime.utcfromtimestamp(run['created_on']).strftime('%Y-%m-%d %H:%M:%S')
+                self.logger.log(
+                    f'Run "{run["name"]}" has completed_on ({run["completed_on"]}) before created_on ({run["created_on"]}). Setting end_time equal to start_time.', 'info')
+                data['end_time'] = datetime.utcfromtimestamp(
+                    run['created_on']).strftime('%Y-%m-%d %H:%M:%S')
             else:
-                data['end_time'] = datetime.utcfromtimestamp(run['completed_on']).strftime('%Y-%m-%d %H:%M:%S')
+                data['end_time'] = datetime.utcfromtimestamp(
+                    run['completed_on']).strftime('%Y-%m-%d %H:%M:%S')
 
         if milestone_id:
             data['milestone_id'] = milestone_id
 
         if cases and len(cases) > 0:
-            # Filter out any None or invalid case IDs
-            valid_cases = [case_id for case_id in cases if case_id is not None and case_id != '']
-            if valid_cases:
-                data['cases'] = valid_cases
-            else:
-                self.logger.log(f'Skipping run creation for "{run_name}" - no valid case IDs found', 'warning')
-                return None
-
-        # Enhanced preflight validation and truncation logic
-        if 'title' in data:
-            # Remove any null bytes or control characters
-            data['title'] = ''.join(char for char in data['title'] if ord(char) >= 32 or char in '\n\r\t')
-            
-            if len(data['title']) > 255:
-                original_length = len(data['title'])
-                self.logger.log(f'Title exceeds 255 characters (length: {original_length}). Truncating to 255 characters.', 'warning')
-                data['title'] = data['title'][:255]
-            
-            # Ensure title is not empty after sanitization
-            if not data['title'].strip():
-                self.logger.log(f'Skipping run creation for "{run_name}" - title is empty after sanitization', 'warning')
-                return None
-
-        if 'description' in data and data['description']:
-            # Remove any null bytes or control characters
-            data['description'] = ''.join(char for char in data['description'] if ord(char) >= 32 or char in '\n\r\t')
-            
-            if len(data['description']) > 10000:
-                original_length = len(data['description'])
-                self.logger.log(f'Description exceeds 10,000 characters (length: {original_length}). Truncating to 10,000 characters.', 'warning')
-                data['description'] = data['description'][:10000]
-
-        # Additional validation for required fields
-        if not data.get('title') or not data.get('start_time'):
-            self.logger.log(f'Skipping run creation for "{run_name}" - missing required fields (title or start_time)', 'warning')
-            return None
+            data['cases'] = cases
 
         try:
-            response = api_instance.create_run(code=project_code, run_create=RunCreate(**data))
+            response = api_instance.create_run(
+                code=project_code, run_create=RunCreate(**data))
             return response.result.id
         except Exception as e:
-            self.logger.log(f'Exception when calling RunsApi->create_run for "{run_name}": {e}', 'error')
-            self.logger.log('Data being sent to API: %s' % json.dumps(data, indent=2, default=str), 'error')
+            self.logger.log(
+                f'Exception when calling RunsApi->create_run for "{run["name"]}": {e}', 'error')
+            self.logger.log('Data being sent to API: %s' %
+                            json.dumps(data, indent=2, default=str), 'error')
             return None
 
     def complete_run(self, project_code, run_id):
@@ -366,7 +349,8 @@ class QaseService:
         try:
             api_instance.complete_run(code=project_code, id=run_id)
         except Exception as e:
-            self.logger.log(f'Exception when calling RunsApi->complete_run: {e}', 'error')
+            self.logger.log(
+                f'Exception when calling RunsApi->complete_run: {e}', 'error')
 
     def send_bulk_results(self, tr_run, results, qase_run_id, qase_code, mappings, cases_map):
         res = []
@@ -378,7 +362,8 @@ class QaseService:
                     elapsed = 0
                     if 'elapsed' in result and result['elapsed']:
                         if type(result['elapsed']) is str:
-                            elapsed = self.convert_to_seconds(result['elapsed'])
+                            elapsed = self.convert_to_seconds(
+                                result['elapsed'])
                         else:
                             elapsed = int(result['elapsed'])
 
@@ -392,9 +377,9 @@ class QaseService:
                     if result['test_id'] in cases_map:
                         status = 'skipped'
                         if ("status_id" in result
-                            and result["status_id"] is not None
-                                and result["status_id"] in mappings.result_statuses
-                            and mappings.result_statuses[result["status_id"]]
+                                and result["status_id"] is not None
+                            and result["status_id"] in mappings.result_statuses
+                                and mappings.result_statuses[result["status_id"]]
                             ):
                             status = mappings.result_statuses[result["status_id"]]
                         data = {
@@ -410,14 +395,15 @@ class QaseService:
                         if start_time:
                             data['start_time'] = start_time
 
-                        #if (result['defects']):
-                            #self.defects.append({"case_id": result["case_id"],"defects": result['defects'],"run_id": qase_run_id})
+                        # if (result['defects']):
+                            # self.defects.append({"case_id": result["case_id"],"defects": result['defects'],"run_id": qase_run_id})
 
                         # if result['created_by']:
                         #     data['author_id'] = mappings.get_user_id(result['created_by'])
 
                         if 'custom_step_results' in result and result['custom_step_results']:
-                            data['steps'] = self.prepare_result_steps(result['custom_step_results'], mappings.result_statuses)
+                            data['steps'] = self.prepare_result_steps(
+                                result['custom_step_results'], mappings.result_statuses)
 
                         res.append(data)
 
@@ -434,8 +420,10 @@ class QaseService:
                     )
                     self.logger.log(f'{len(res)} results sent to Qase')
                 except Exception as e:
-                    self.logger.log(f'Exception when calling ResultsApi->create_result_bulk: {e}', 'error')
-                    self.logger.log('Data being sent to API: %s' % json.dumps(res, indent=2, default=str), 'error')
+                    self.logger.log(
+                        f'Exception when calling ResultsApi->create_result_bulk: {e}', 'error')
+                    self.logger.log('Data being sent to API: %s' % json.dumps(
+                        res, indent=2, default=str), 'error')
 
     def prepare_result_steps(self, steps, status_map) -> list:
         allowed_statuses = ['passed', 'failed', 'blocked', 'skipped']
@@ -455,7 +443,8 @@ class QaseService:
 
                 data.append(step_data)
         except Exception as e:
-            self.logger.log(f'Exception when preparing result steps: {e}', 'error')
+            self.logger.log(
+                f'Exception when preparing result steps: {e}', 'error')
 
         return data
 
@@ -466,15 +455,18 @@ class QaseService:
             components = time_str.split()
             for component in components:
                 if component.endswith('d'):
-                    total_seconds += int(component[:-1]) * 86400  # 60 seconds * 60 minutes * 24 hours
+                    # 60 seconds * 60 minutes * 24 hours
+                    total_seconds += int(component[:-1]) * 86400
                 elif component.endswith('h'):
-                    total_seconds += int(component[:-1]) * 3600  # 60 seconds * 60 minutes
+                    # 60 seconds * 60 minutes
+                    total_seconds += int(component[:-1]) * 3600
                 elif component.endswith('m'):
                     total_seconds += int(component[:-1]) * 60
                 elif component.endswith('s'):
                     total_seconds += int(component[:-1])
         except Exception as e:
-            self.logger.log(f'Exception when converting time string \'{time_str}\': {e}', 'warning')
+            self.logger.log(
+                f'Exception when converting time string \'{time_str}\': {e}', 'warning')
 
         return total_seconds
 
@@ -482,13 +474,14 @@ class QaseService:
         api_attachments = AttachmentsApi(self.client)
         try:
             response = api_attachments.upload_attachment(
-                    code, file=[attachment_data],
-                )
+                code, file=[attachment_data],
+            )
 
             if response.status:
                 return response.result[0].to_dict()
         except Exception as e:
-            self.logger.log(f'Exception when calling AttachmentsApi->upload_attachment: {e}', 'warning')
+            self.logger.log(
+                f'Exception when calling AttachmentsApi->upload_attachment: {e}', 'warning')
         return None
 
     def create_milestone(self, project_code, title, description, status, due_date):
@@ -514,7 +507,8 @@ class QaseService:
         inner_steps = []
 
         for step in steps:
-            action = step['content'].strip() if 'content' in step and type(step['content']) is str else 'No action'
+            action = step['content'].strip() if 'content' in step and type(
+                step['content']) is str else 'No action'
 
             if action == '':
                 action = 'No action'
@@ -526,5 +520,6 @@ class QaseService:
             )
 
         api_instance = SharedStepsApi(self.client)
-        api_response = api_instance.create_shared_step(project_code, SharedStepCreate(title=title, steps=inner_steps))
+        api_response = api_instance.create_shared_step(
+            project_code, SharedStepCreate(title=title, steps=inner_steps))
         return api_response.result.hash
