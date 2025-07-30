@@ -52,30 +52,25 @@ class Cases:
                 tg.create_task(self.import_cases_for_suite(None))
 
     async def import_cases_for_suite(self, suite_id):
-        offset = 0
-        limit = 100
-        while True:
-            count = await self.process_cases(suite_id, offset, limit)
-            if count < limit:
-                break
-            offset += limit
+        await self.process_cases(suite_id, 0, 0)
 
     async def process_cases(self, suite_id: int, offset: int, limit: int):
         try:
             if suite_id is None:
                 suite_id = 0
-            cases = await self.pools.tr(self.testrail.get_cases, self.project['testrail_id'], suite_id, limit, offset)
+            # Remove offset/limit since get_cases already handles pagination internally
+            cases = await self.pools.tr(self.testrail.get_cases, self.project['testrail_id'], suite_id)
             self.mappings.stats.add_entity_count(
                 self.project['code'], 'cases', 'testrail', len(cases))
             if cases:
                 self.logger.print_status(
                     '['+self.project['code']+'] Importing test cases', self.total, self.total+len(cases), 1)
                 self.logger.log(
-                    f'[{self.project["code"]}][Tests] Importing {len(cases)} cases from {offset} to {offset + limit} for suite {suite_id}')
+                    f'[{self.project["code"]}][Tests] Importing {len(cases)} cases for suite {suite_id}')
                 data = await self._prepare_cases(cases)
                 if data:
                     self.logger.log(
-                        f'[{self.project["code"]}][Tests] Sending {len(data)} cases from {offset} to {offset + limit} for suite {suite_id}')
+                        f'[{self.project["code"]}][Tests] Sending {len(data)} cases for suite {suite_id}')
                     status = await self.pools.qs(self.qase.create_cases, self.project['code'], data)
                     if status:
                         self.mappings.stats.add_entity_count(
@@ -134,18 +129,19 @@ class Cases:
             return data
 
         refs = [ref.strip() for ref in case['refs'].split(',')]
-        url = self.config.get('tests.refs.url').rstrip('/')
 
         processed_refs = []
         for ref in refs:
             if ref.startswith('http'):
                 processed_ref = f"[{ref}]({ref})"
             else:
-                processed_ref = f"[{ref}]({url}/{ref})"
+                # Use Jira browse path for non-HTTP refs
+                processed_ref = f"[{ref}](https://blueowl.atlassian.net/browse/{ref})"
             processed_ref = self.__format_links_as_markdown(processed_ref)
             processed_refs.append(processed_ref)
 
-        data['custom_field'][str(self.mappings.refs_id)] = '\n'.join(processed_refs)
+        data['custom_field'][str(self.mappings.refs_id)
+                             ] = '\n'.join(processed_refs)
 
         return data
 
@@ -266,7 +262,7 @@ class Cases:
         items = string.split('\n')  # split items into a list
         result = {}
         seen_titles = set()  # Track seen titles to avoid duplicates
-        
+
         for item in items:
             if item == '' or item is None:
                 continue

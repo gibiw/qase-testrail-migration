@@ -283,8 +283,29 @@ class QaseService:
         api_instance = CasesApi(self.client)
 
         try:
-            # Create a new test cases.
-            api_response = api_instance.bulk(code, TestCasebulk(cases=cases))
+            # Check for existing cases to avoid duplicates
+            existing_cases = []
+            try:
+                # Get existing cases to check for duplicates
+                response = api_instance.get_cases(code, limit=1000)
+                if response.status and response.result:
+                    existing_cases = response.result
+            except Exception as e:
+                self.logger.log(f"Warning: Could not fetch existing cases for duplicate check: {e}", 'warning')
+            
+            # Filter out cases that already exist (by title)
+            existing_titles = {case.title for case in existing_cases}
+            new_cases = [case for case in cases if case.title not in existing_titles]
+            
+            if not new_cases:
+                self.logger.log(f"All cases already exist in project {code}, skipping creation")
+                return True
+                
+            if len(new_cases) < len(cases):
+                self.logger.log(f"Skipping {len(cases) - len(new_cases)} duplicate cases in project {code}")
+            
+            # Create only new cases
+            api_response = api_instance.bulk(code, TestCasebulk(cases=new_cases))
             return api_response.status
         except ApiException as e:
             self.logger.log("Exception when calling CasesApi->bulk: %s\n" % e)
