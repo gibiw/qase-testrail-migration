@@ -145,8 +145,7 @@ class Cases:
             processed_ref = self.__format_links_as_markdown(processed_ref)
             processed_refs.append(processed_ref)
 
-        data['custom_field'][str(self.mappings.refs_id)
-                             ] = '\n'.join(processed_refs)
+        data['custom_field'][str(self.mappings.refs_id)] = '\n'.join(processed_refs)
 
         return data
 
@@ -266,10 +265,18 @@ class Cases:
     def __split_values(self, string: str, delimiter: str = ',') -> dict:
         items = string.split('\n')  # split items into a list
         result = {}
+        seen_titles = set()  # Track seen titles to avoid duplicates
+        
         for item in items:
-            if item != '' and item != None:
-                key, value = item.split(delimiter)
-                result[key] = value
+            if item == '' or item is None:
+                continue
+            # split each item into a key and a value
+            key, value = item.split(delimiter)
+            # Trim the title and skip empty titles
+            trimmed_value = value.strip()
+            if trimmed_value and trimmed_value not in seen_titles:
+                result[key] = trimmed_value
+                seen_titles.add(trimmed_value)
         return result
 
     # Done

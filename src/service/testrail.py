@@ -69,7 +69,19 @@ class TestrailService:
         return self.repository.get_sections(project_id, limit, offset, suite_id)
     
     def get_cases(self, project_id: int, suite_id: int = 0, limit: int = 250, offset: int = 0):
-        return self.repository.get_cases(project_id, suite_id, limit, offset)
+        all_cases = []
+        current_offset = offset
+        
+        while True:
+            batch = self.repository.get_cases(project_id, suite_id, limit, current_offset)
+            if not batch or len(batch) == 0:
+                break
+            all_cases.extend(batch)
+            if len(batch) < limit:
+                break
+            current_offset += limit
+        
+        return all_cases
     
     def get_runs(self, project_id: int, suite_id: int = 0, created_after: int = 0, limit: int = 250, offset: int = 0):
         return self.repository.get_runs(project_id, suite_id, created_after, limit, offset)
