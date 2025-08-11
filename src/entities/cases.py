@@ -242,6 +242,9 @@ class Cases:
         # Handle required custom fields that don't exist in TestRail data
         data = self._handle_required_custom_fields(data)
         
+        # Validate and fix any invalid custom field values
+        data = self._validate_and_fix_custom_field_values(data)
+        
         return data
 
     def _handle_required_custom_fields(self, data: dict) -> dict:
@@ -264,6 +267,48 @@ class Cases:
         except Exception as e:
             self.logger.log(
                 f'[{self.project["code"]}][Tests] Error handling required custom fields: {e}', 'warning')
+        
+        return data
+
+    def _validate_and_fix_custom_field_values(self, data: dict) -> dict:
+        """Validate and fix any invalid custom field values before sending to Qase"""
+        try:
+            qase_custom_fields = self.qase.get_case_custom_fields()
+            if qase_custom_fields:
+                for qase_field in qase_custom_fields:
+                    field_id_str = str(qase_field.id)
+                    if field_id_str in data['custom_field']:
+                        current_value = data['custom_field'][field_id_str]
+                        
+                        # For dropdown/select fields, validate the value
+                        if qase_field.type.lower() in ['selectbox', 'radio', 'multiselect', 'checkbox']:
+                            if hasattr(qase_field, 'value') and qase_field.value:
+                                try:
+                                    valid_options = json.loads(qase_field.value)
+                                    valid_ids = [str(option['id']) for option in valid_options]
+                                    
+                                    # Check if current value is valid
+                                    if isinstance(current_value, str):
+                                        if current_value not in valid_ids:
+                                            # Use first valid option as fallback
+                                            if valid_ids:
+                                                data['custom_field'][field_id_str] = valid_ids[0]
+                                                self.logger.log(
+                                                    f'[{self.project["code"]}][Tests] Fixed invalid value for custom field {qase_field.title} (ID: {qase_field.id}): {current_value} -> {valid_ids[0]}', 'info')
+                                    elif isinstance(current_value, list):
+                                        # For multiselect fields
+                                        valid_values = [v for v in current_value if str(v) in valid_ids]
+                                        if not valid_values and valid_ids:
+                                            valid_values = [valid_ids[0]]
+                                            self.logger.log(
+                                                f'[{self.project["code"]}][Tests] Fixed invalid values for custom field {qase_field.title} (ID: {qase_field.id}): {current_value} -> {valid_values}', 'info')
+                                        data['custom_field'][field_id_str] = valid_values
+                                except Exception as e:
+                                    self.logger.log(
+                                        f'[{self.project["code"]}][Tests] Error validating custom field {qase_field.title}: {e}', 'warning')
+        except Exception as e:
+            self.logger.log(
+                f'[{self.project["code"]}][Tests] Error validating custom field values: {e}', 'warning')
         
         return data
 
@@ -316,7 +361,15 @@ class Cases:
                 if str(value) not in values.keys():
                     self.logger.log(
                         f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has invalid value {value}, but proceeding anyway', 'warning')
-                    return value  # Return the original value instead of None
+                    # For invalid values, try to find a valid alternative or use a default
+                    if values:
+                        # Use the first available option as fallback
+                        first_key = list(values.keys())[0]
+                        self.logger.log(
+                            f'[{self.project["code"]}][Tests] Using fallback value {first_key} for custom field {custom_field["name"]}', 'info')
+                        return first_key
+                    return None  # Return None if no valid options available
+                return value
             elif type(value) == list:
                 filtered_values = []
                 for item in value:
@@ -326,7 +379,14 @@ class Cases:
                         self.logger.log(
                             f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has invalid value {item}, but proceeding anyway', 'warning')
                 if len(filtered_values) == 0:
-                    return value  # Return the original value instead of None
+                    # For invalid values, try to find a valid alternative or use a default
+                    if values:
+                        # Use the first available option as fallback
+                        first_key = list(values.keys())[0]
+                        self.logger.log(
+                            f'[{self.project["code"]}][Tests] Using fallback value {first_key} for custom field {custom_field["name"]}', 'info')
+                        return [first_key]
+                    return None  # Return None if no valid options available
                 else:
                     return filtered_values
             return value
