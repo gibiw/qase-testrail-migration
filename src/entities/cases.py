@@ -11,6 +11,7 @@ from typing import List, Optional, Union
 
 from urllib.parse import quote
 from datetime import datetime
+import json
 
 
 class Cases:
@@ -237,7 +238,74 @@ class Cases:
                         self.logger.log(
                             f'[{self.project["code"]}][Tests] Case {case["title"]} has invalid step {step}', 'warning')
                 data['steps'] = steps
+        
+        # Handle required custom fields that don't exist in TestRail data
+        data = self._handle_required_custom_fields(data)
+        
         return data
+
+    def _handle_required_custom_fields(self, data: dict) -> dict:
+        """Handle required custom fields that don't exist in TestRail data by providing default values"""
+        # Get all Qase custom fields to check which ones are required
+        try:
+            qase_custom_fields = self.qase.get_case_custom_fields()
+            if qase_custom_fields:
+                for qase_field in qase_custom_fields:
+                    # Check if this field is required and not already provided
+                    if hasattr(qase_field, 'is_required') and qase_field.is_required:
+                        field_id_str = str(qase_field.id)
+                        if field_id_str not in data['custom_field']:
+                            # Provide a default value based on field type
+                            default_value = self._get_default_value_for_field(qase_field)
+                            if default_value is not None:
+                                data['custom_field'][field_id_str] = default_value
+                                self.logger.log(
+                                    f'[{self.project["code"]}][Tests] Providing default value for required custom field {qase_field.title} (ID: {qase_field.id}): {default_value}', 'info')
+        except Exception as e:
+            self.logger.log(
+                f'[{self.project["code"]}][Tests] Error handling required custom fields: {e}', 'warning')
+        
+        return data
+
+    def _get_default_value_for_field(self, qase_field) -> str:
+        """Get appropriate default value for a required custom field based on its type"""
+        try:
+            field_type = qase_field.type.lower()
+            
+            if field_type in ['text', 'textarea']:
+                return 'Migrated from TestRail'
+            elif field_type in ['number']:
+                return '0'
+            elif field_type in ['url']:
+                return 'https://example.com'
+            elif field_type in ['email']:
+                return 'migration@example.com'
+            elif field_type in ['selectbox', 'radio']:
+                # For select fields, try to use the first available option
+                if hasattr(qase_field, 'value') and qase_field.value:
+                    try:
+                        values = json.loads(qase_field.value)
+                        if values and len(values) > 0:
+                            return str(values[0]['id'])
+                    except:
+                        pass
+                return '1'  # Default to first option
+            elif field_type in ['multiselect', 'checkbox']:
+                # For multiselect fields, try to use the first available option
+                if hasattr(qase_field, 'value') and qase_field.value:
+                    try:
+                        values = json.loads(qase_field.value)
+                        if values and len(values) > 0:
+                            return str(values[0]['id'])
+                    except:
+                        pass
+                return '1'  # Default to first option
+            else:
+                return 'Migrated from TestRail'
+        except Exception as e:
+            self.logger.log(
+                f'[{self.project["code"]}][Tests] Error getting default value for field {qase_field.title}: {e}', 'warning')
+            return 'Migrated from TestRail'
 
     # Done. Method validates if custom field value exists (skip)
     def _validate_custom_field_values(self, custom_field: dict, value: Union[str, List]) -> Optional[Union[str, list]]:
