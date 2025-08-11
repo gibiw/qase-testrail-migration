@@ -86,10 +86,16 @@ class Cases:
 
     async def _prepare_cases(self, cases: List) -> List:
         result = []
-        async with asyncio.TaskGroup() as tg:
-            for case in cases:
-                tg.create_task(self._prepare_case(case, result))
-
+        tasks = []
+        
+        # Create all tasks
+        for case in cases:
+            task = self._prepare_case(case, result)
+            tasks.append(task)
+        
+        # Wait for all tasks to complete
+        await asyncio.gather(*tasks)
+        
         return result
 
     async def _prepare_case(self, case, result):
