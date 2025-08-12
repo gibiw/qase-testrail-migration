@@ -202,10 +202,21 @@ class Cases:
                             data['custom_field'][str(custom_field['qase_id'])] = ','.join(
                                 str(int(v)+1) for v in value)
                 else:
-                    data['custom_field'][str(custom_field['qase_id'])] = self.__format_links_as_markdown(str(
+                    # Check if this is a URL field and handle accordingly
+                    field_value = str(
                         self.attachments.check_and_replace_attachments(
                             case[field_name], self.project['code'])
-                    ))
+                    )
+                    
+                    # Check if this custom field is a URL type in Qase
+                    if self._is_url_field(custom_field['qase_id']):
+                        # For URL fields, extract plain URL from markdown if needed
+                        plain_url = self._extract_url_from_markdown(field_value)
+                        data['custom_field'][str(custom_field['qase_id'])] = plain_url
+                    else:
+                        # For non-URL fields, apply markdown formatting
+                        data['custom_field'][str(custom_field['qase_id'])] = self.__format_links_as_markdown(field_value)
+                        
             if field_name[len('custom_'):] in self.mappings.step_fields and case[field_name]:
                 steps = []
                 i = 1
@@ -246,6 +257,46 @@ class Cases:
         data = self._validate_and_fix_custom_field_values(data)
         
         return data
+
+    def _is_url_field(self, qase_field_id: int) -> bool:
+        """Check if a custom field is a URL type in Qase"""
+        try:
+            qase_custom_fields = self.qase.get_case_custom_fields()
+            if qase_custom_fields:
+                for qase_field in qase_custom_fields:
+                    if qase_field.id == qase_field_id:
+                        return qase_field.type.lower() == 'url'
+        except Exception as e:
+            self.logger.log(
+                f'[{self.project["code"]}][Tests] Error checking field type for ID {qase_field_id}: {e}', 'warning')
+        return False
+
+    def _extract_url_from_markdown(self, text: str) -> str:
+        """Extract plain URL from markdown link format [text](url) or return original text if not markdown"""
+        if not text:
+            return text
+            
+        # Check if text is in markdown link format [text](url)
+        import re
+        markdown_link_pattern = r'\[([^\]]+)\]\(([^)]+)\)'
+        match = re.search(markdown_link_pattern, text)
+        
+        if match:
+            # Extract the URL part from [text](url)
+            url = match.group(2)
+            self.logger.log(
+                f'[{self.project["code"]}][Tests] Extracted URL from markdown: {text} -> {url}', 'info')
+            return url
+        else:
+            # If not markdown format, check if it's already a plain URL
+            url_pattern = r'^https?://[^\s]+$'
+            if re.match(url_pattern, text.strip()):
+                return text.strip()
+            else:
+                # If it's not a valid URL, return empty string to avoid validation errors
+                self.logger.log(
+                    f'[{self.project["code"]}][Tests] Invalid URL format, using empty string: {text}', 'warning')
+                return ''
 
     def _handle_required_custom_fields(self, data: dict) -> dict:
         """Handle required custom fields that don't exist in TestRail data by providing default values"""
@@ -322,7 +373,7 @@ class Cases:
             elif field_type in ['number']:
                 return '0'
             elif field_type in ['url']:
-                return 'https://example.com'
+                return 'https://blueowl.atlassian.net/wiki/spaces/EN/pages/viewpage.action?pageId=1'
             elif field_type in ['email']:
                 return 'migration@example.com'
             elif field_type in ['selectbox', 'radio']:
