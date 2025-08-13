@@ -357,6 +357,11 @@ class Cases:
                                 except Exception as e:
                                     self.logger.log(
                                         f'[{self.project["code"]}][Tests] Error validating custom field {qase_field.title}: {e}', 'warning')
+                        if qase_field.type.lower() == 'url':
+                            # Extract URL from markdown format [text](url) if present
+                            extracted_url = self._extract_url_from_markdown(current_value)
+                            if extracted_url:
+                                data['custom_field'][field_id_str] = extracted_url
         except Exception as e:
             self.logger.log(
                 f'[{self.project["code"]}][Tests] Error validating custom field values: {e}', 'warning')
