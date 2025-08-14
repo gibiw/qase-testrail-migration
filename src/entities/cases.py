@@ -201,6 +201,15 @@ class Cases:
                         if type(value) == list:
                             data['custom_field'][str(custom_field['qase_id'])] = ','.join(
                                 str(int(v)+1) for v in value)
+                    else:
+                        # Log when validation returns None for debugging
+                        self.logger.log(
+                            f'[{self.project["code"]}][Tests] Custom field {name} validation returned None for value: {case[field_name]}', 'warning')
+                        # Log available options for debugging
+                        if len(custom_field['configs']) > 0 and 'options' in custom_field['configs'][0]:
+                            values = self.__split_values(custom_field['configs'][0]['options']['items'])
+                            self.logger.log(
+                                f'[{self.project["code"]}][Tests] Available options for {name}: {values}', 'info')
                 else:
                     # Check if this is a URL field and handle accordingly
                     field_value = str(
@@ -413,38 +422,91 @@ class Cases:
         if len(custom_field['configs']) > 0 and 'options' in custom_field['configs'][0] and 'items' in custom_field['configs'][0]['options'] and len(custom_field['configs'][0]['options']['items']) > 0:
             values = self.__split_values(
                 custom_field['configs'][0]['options']['items'])
+            
+            # Create reverse mapping for better value matching
+            value_to_key = {v.strip(): k for k, v in values.items()}
+            
             if type(value) == str or type(value) == int:
-                if str(value) not in values.keys():
-                    self.logger.log(
-                        f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has invalid value {value}, but proceeding anyway', 'warning')
-                    # For invalid values, try to find a valid alternative or use a default
-                    if values:
-                        # Use the first available option as fallback
-                        first_key = list(values.keys())[0]
-                        self.logger.log(
-                            f'[{self.project["code"]}][Tests] Using fallback value {first_key} for custom field {custom_field["name"]}', 'info')
-                        return first_key
-                    return None  # Return None if no valid options available
+                str_value = str(value).strip()
+                
+                # First try exact key match
+                if str_value in values.keys():
+                    return value
+                
+                # Then try value match (case-insensitive)
+                if str_value.lower() in [v.lower() for v in values.values()]:
+                    for k, v in values.items():
+                        if v.lower() == str_value.lower():
+                            return k
+                
+                # For multi-select fields, try to split and match individual values
+                if ',' in str_value:
+                    parts = [part.strip() for part in str_value.split(',')]
+                    matched_parts = []
+                    for part in parts:
+                        if part in values.keys():
+                            matched_parts.append(part)
+                        elif part.lower() in [v.lower() for v in values.values()]:
+                            for k, v in values.items():
+                                if v.lower() == part.lower():
+                                    matched_parts.append(k)
+                                    break
+                        else:
+                            self.logger.log(
+                                f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has unmatched value "{part}" in "{str_value}"', 'warning')
+                    
+                    if matched_parts:
+                        return matched_parts
+                
+                # Log the issue but don't use fallback - preserve original value
+                self.logger.log(
+                    f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has unmatched value "{str_value}", preserving original', 'warning')
                 return value
+                
             elif type(value) == list:
                 filtered_values = []
                 for item in value:
-                    if str(item) in values.keys():
+                    str_item = str(item).strip()
+                    
+                    # Try exact key match
+                    if str_item in values.keys():
                         filtered_values.append(item)
+                        continue
+                    
+                    # Try value match (case-insensitive)
+                    if str_item.lower() in [v.lower() for v in values.values()]:
+                        for k, v in values.items():
+                            if v.lower() == str_item.lower():
+                                filtered_values.append(k)
+                                break
+                        continue
+                    
+                    # For multi-select items, try to split and match
+                    if ',' in str_item:
+                        parts = [part.strip() for part in str_item.split(',')]
+                        for part in parts:
+                            if part in values.keys():
+                                filtered_values.append(part)
+                            elif part.lower() in [v.lower() for v in values.values()]:
+                                for k, v in values.items():
+                                    if v.lower() == part.lower():
+                                        filtered_values.append(k)
+                                        break
+                            else:
+                                self.logger.log(
+                                    f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has unmatched list item "{part}" in "{str_item}"', 'warning')
                     else:
                         self.logger.log(
-                            f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has invalid value {item}, but proceeding anyway', 'warning')
-                if len(filtered_values) == 0:
-                    # For invalid values, try to find a valid alternative or use a default
-                    if values:
-                        # Use the first available option as fallback
-                        first_key = list(values.keys())[0]
-                        self.logger.log(
-                            f'[{self.project["code"]}][Tests] Using fallback value {first_key} for custom field {custom_field["name"]}', 'info')
-                        return [first_key]
-                    return None  # Return None if no valid options available
-                else:
+                            f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has unmatched list value "{str_item}"', 'warning')
+                
+                if filtered_values:
                     return filtered_values
+                else:
+                    # Log but preserve original value instead of using fallback
+                    self.logger.log(
+                        f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has no matched values from "{value}", preserving original', 'warning')
+                    return value
+            
             return value
         return value  # Return the original value instead of None
 
@@ -508,7 +570,18 @@ class Cases:
         if text is None:
             return None
 
-        url_pattern = re.compile(r'(?<!\]\()(?<!\])\b(http[s]?://[^\s]+)')
+        # Don't process if text is already empty
+        if not text.strip():
+            return text
+
+        # Check if text already contains markdown links to avoid double-processing
+        if re.search(r'\[.*?\]\(.*?\)', text):
+            # Text already contains markdown links, return as-is
+            return text
+
+        # Only convert plain URLs to markdown format if they're not already in markdown
+        # Use a more precise regex that doesn't match URLs already in markdown
+        url_pattern = re.compile(r'(?<!\]\()(?<!\])\b(http[s]?://[^\s\)]+)')
         formatted_text = url_pattern.sub(r'[\1](\1)', text)
 
         return formatted_text
