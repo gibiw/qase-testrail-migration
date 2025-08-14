@@ -1,9 +1,15 @@
-from .support import ConfigManager, Logger, Mappings
+from .support import ConfigManager, Logger, Mappings, ThrottledThreadPoolExecutor, Pools
 from .service import QaseService, TestrailService, QaseScimService
 from .entities import Users, Fields, Projects, Suites, Cases, Runs, Milestones, Configurations, Attachments, SharedSteps
+from concurrent.futures import ThreadPoolExecutor
 
 class TestRailImporterSync:
     def __init__(self, config: ConfigManager, logger: Logger) -> None:
+        self.pools = Pools(
+            qase_pool=ThrottledThreadPoolExecutor(max_workers=8, requests=230, interval=10),
+            tr_pool=ThreadPoolExecutor(max_workers=8),
+        )
+
         self.logger = logger
         self.config = config
         self.qase_scim_service = None
@@ -26,7 +32,8 @@ class TestRailImporterSync:
             self.logger, 
             self.mappings,
             self.config,
-            self.qase_scim_service,
+            self.pools,
+            scim_service=self.qase_scim_service,
         ).import_users()
 
         # Step 2. Import project and build projects map
@@ -35,7 +42,8 @@ class TestRailImporterSync:
             self.testrail_service, 
             self.logger, 
             self.mappings,
-            self.config
+            self.config,
+            self.pools,
         ).import_projects()
 
         # Step 3. Import attachments
@@ -44,7 +52,8 @@ class TestRailImporterSync:
             self.testrail_service, 
             self.logger, 
             self.mappings,
-            self.config
+            self.config,
+            self.pools,
         ).import_all_attachments()
 
         # Step 4. Import custom fields
@@ -54,6 +63,7 @@ class TestRailImporterSync:
             self.logger, 
             self.mappings,
             self.config,
+            self.pools,
         ).import_fields()
 
         for project in self.mappings.projects:
@@ -63,6 +73,7 @@ class TestRailImporterSync:
             self.testrail_service, 
             self.logger, 
             self.mappings,
+            self.pools,
             ).import_configurations(project)
 
             self.mappings = SharedSteps(
@@ -70,6 +81,7 @@ class TestRailImporterSync:
                 self.testrail_service, 
                 self.logger, 
                 self.mappings,
+                self.pools,
             ).import_shared_steps(project)
 
             self.mappings = Milestones(
@@ -77,6 +89,7 @@ class TestRailImporterSync:
                 self.testrail_service, 
                 self.logger, 
                 self.mappings,
+                self.pools,
             ).import_milestones(project)
 
             self.mappings = Suites(
@@ -84,7 +97,8 @@ class TestRailImporterSync:
                 self.testrail_service, 
                 self.logger, 
                 self.mappings, 
-                self.config
+                self.config,
+                self.pools,
             ).import_suites(project)
 
             Cases(
@@ -92,7 +106,8 @@ class TestRailImporterSync:
                 self.testrail_service, 
                 self.logger, 
                 self.mappings, 
-                self.config
+                self.config,
+                self.pools,
             ).import_cases(project)
 
             Runs(
@@ -101,5 +116,6 @@ class TestRailImporterSync:
                 self.logger, 
                 self.mappings, 
                 self.config,
-                project
+                project,
+                self.pools,
             ).import_runs()
