@@ -196,11 +196,15 @@ class Cases:
                         custom_field, case[field_name])
                     if value:
                         if type(value) == str or type(value) == int:
-                            data['custom_field'][str(custom_field['qase_id'])] = str(
-                                int(value)+1)
+                            result_value = str(int(value)+1)
+                            data['custom_field'][str(custom_field['qase_id'])] = result_value
+                            self.logger.log(
+                                f'[{self.project["code"]}][Tests] Custom field {name} (ID: {custom_field["qase_id"]}): value={value} -> result={result_value}', 'info')
                         if type(value) == list:
-                            data['custom_field'][str(custom_field['qase_id'])] = ','.join(
-                                str(int(v)+1) for v in value)
+                            result_value = ','.join(str(int(v)+1) for v in value)
+                            data['custom_field'][str(custom_field['qase_id'])] = result_value
+                            self.logger.log(
+                                f'[{self.project["code"]}][Tests] Custom field {name} (ID: {custom_field["qase_id"]}): value={value} -> result={result_value}', 'info')
                     else:
                         # Log when validation returns None for debugging
                         self.logger.log(
@@ -222,9 +226,14 @@ class Cases:
                         # For URL fields, extract plain URL from markdown if needed
                         plain_url = self._extract_url_from_markdown(field_value)
                         data['custom_field'][str(custom_field['qase_id'])] = plain_url
+                        self.logger.log(
+                            f'[{self.project["code"]}][Tests] Custom field {name} (ID: {custom_field["qase_id"]}) - URL type: original={case[field_name]} -> processed={field_value} -> result={plain_url}', 'info')
                     else:
                         # For non-URL fields, apply markdown formatting
-                        data['custom_field'][str(custom_field['qase_id'])] = self.__format_links_as_markdown(field_value)
+                        formatted_value = self.__format_links_as_markdown(field_value)
+                        data['custom_field'][str(custom_field['qase_id'])] = formatted_value
+                        self.logger.log(
+                            f'[{self.project["code"]}][Tests] Custom field {name} (ID: {custom_field["qase_id"]}) - {custom_field["type_id"]} type: original={case[field_name]} -> processed={field_value} -> result={formatted_value}', 'info')
                         
             if field_name[len('custom_'):] in self.mappings.step_fields and case[field_name]:
                 steps = []

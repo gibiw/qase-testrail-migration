@@ -41,10 +41,28 @@ class Fields:
         for field in qase_system_fields:
             self.system_fields.append(field.to_dict())
 
+        # Log initial mappings state
+        self.logger.divider()
+        self.logger.log('[Fields] === INITIAL MAPPINGS STATE ===')
+        self.logger.log(f'[Fields] Initial custom_fields_type: {self.mappings.custom_fields_type}')
+        self.logger.log(f'[Fields] Initial qase_fields_type: {self.mappings.qase_fields_type}')
+        self.logger.log(f'[Fields] Initial custom_fields: {len(self.mappings.custom_fields)} entries')
+        self.logger.log('[Fields] === END INITIAL STATE ===')
+        self.logger.divider()
+
         async with asyncio.TaskGroup() as tg:
             tg.create_task(self._create_types_map())
             tg.create_task(self._create_priorities_map())
             tg.create_task(self._create_result_statuses_map())
+
+        # Log intermediate mappings state
+        self.logger.divider()
+        self.logger.log('[Fields] === INTERMEDIATE MAPPINGS STATE ===')
+        self.logger.log(f'[Fields] Types mapping: {self.mappings.types}')
+        self.logger.log(f'[Fields] Priorities mapping: {self.mappings.priorities}')
+        self.logger.log(f'[Fields] Result statuses mapping: {self.mappings.result_statuses}')
+        self.logger.log('[Fields] === END INTERMEDIATE STATE ===')
+        self.logger.divider()
 
         total = len(testrail_custom_fields)
 
@@ -71,6 +89,35 @@ class Fields:
                 self.logger.print_status('Importing custom fields', i, total)
 
         await self._create_refs_field(qase_custom_fields)
+        
+        # Log key mappings for debugging
+        self.logger.divider()
+        self.logger.log('[Fields] === KEY MAPPINGS DEBUG ===')
+        
+        # Log custom_fields_type mapping
+        self.logger.log('[Fields] custom_fields_type mapping:')
+        for tr_type_id, qase_type_id in self.mappings.custom_fields_type.items():
+            self.logger.log(f'[Fields]   TestRail Type ID {tr_type_id} -> Qase Type ID {qase_type_id}')
+        
+        # Log qase_fields_type mapping
+        self.logger.log('[Fields] qase_fields_type mapping:')
+        for type_name, type_id in self.mappings.qase_fields_type.items():
+            self.logger.log(f'[Fields]   "{type_name}" -> ID {type_id}')
+        
+        # Log custom_fields mapping
+        self.logger.log('[Fields] custom_fields mapping:')
+        if self.mappings.custom_fields:
+            for field_name, field_data in self.mappings.custom_fields.items():
+                qase_id = field_data.get('qase_id', 'N/A')
+                field_type = field_data.get('type_id', 'N/A')
+                field_label = field_data.get('label', field_name)
+                self.logger.log(f'[Fields]   "{field_name}" -> Qase ID {qase_id} (Type: {field_type}, Label: "{field_label}")')
+        else:
+            self.logger.log('[Fields]   No custom fields mapped')
+        
+        self.logger.log('[Fields] === END KEY MAPPINGS DEBUG ===')
+        self.logger.divider()
+        
         return self.mappings
 
     def _get_fields_to_import(self, custom_fields):
