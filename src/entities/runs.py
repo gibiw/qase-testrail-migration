@@ -197,16 +197,42 @@ class Runs:
         limit = 250
         offset = 0
         run_results = []
+        
+        # Log every 10th run for status tracking
+        run_index = self.index.index(run) + 1
+        should_log_detailed = (run_index % 10 == 0)
+        
+        if should_log_detailed:
+            self.logger.log(f'[{self.project["code"]}][Runs] === DETAILED STATUS LOGGING FOR RUN {run_index} ===')
+            self.logger.log(f'[{self.project["code"]}][Runs] Run: {run["name"]} [{run["id"]}] - Qase Run ID: {qase_run_id}')
 
         while True:
             self.logger.log(f'[{self.project["code"]}][Runs] Fetching results for the run {run["name"]} [{run["id"]}]')
             results = await self.pools.tr(self.testrail.get_results, run['id'], limit, offset)
-            run_results = run_results + self._clean_results(results)
+            
+            if should_log_detailed and results:
+                self.logger.log(f'[{self.project["code"]}][Runs] Raw results from TestRail (offset {offset}): {len(results)} results')
+                # Log status distribution for this batch
+                status_counts = {}
+                for result in results:
+                    status_id = result.get('status_id')
+                    status_counts[status_id] = status_counts.get(status_id, 0) + 1
+                self.logger.log(f'[{self.project["code"]}][Runs] Status distribution in batch: {status_counts}')
+            
+            run_results = run_results + self._clean_results(results, should_log_detailed)
             offset = offset + limit
             if len(results) < limit:
                 break
 
         self.logger.log(f'[{self.project["code"]}][Runs] Found {str(len(run_results))} results for the run {run["name"]} [{run["id"]}]')
+
+        if should_log_detailed:
+            # Log final status distribution after cleaning
+            final_status_counts = {}
+            for result in run_results:
+                status_id = result.get('status_id')
+                final_status_counts[status_id] = final_status_counts.get(status_id, 0) + 1
+            self.logger.log(f'[{self.project["code"]}][Runs] Final status distribution after cleaning: {final_status_counts}')
 
         self.logger.log(f'[{self.project["code"]}][Runs] Merging comments for the run {run["name"]} [{run["id"]}]')
         run_results = self._merge_comments(run_results)
@@ -219,7 +245,11 @@ class Runs:
             for chunk in self._chunk_list_generator(run_results, 500):
                 i += 1
                 self.logger.log(f'[{self.project["code"]}][Runs] Importing results [Chunk {i}] for the run {run["name"]} [{run["id"]}]')
-                tg.create_task(self._import_results(run, qase_run_id, cases_map, chunk))
+                tg.create_task(self._import_results(run, qase_run_id, cases_map, chunk, should_log_detailed))
+        
+        if should_log_detailed:
+            self.logger.log(f'[{self.project["code"]}][Runs] === END DETAILED STATUS LOGGING FOR RUN {run_index} ===')
+        
         return 
 
     @staticmethod
@@ -228,15 +258,29 @@ class Runs:
         for i in range(0, len(results), chunk_size):
             yield results[i:i + chunk_size]
 
-    def _clean_results(self, results: list) -> list:
+    def _clean_results(self, results: list, should_log_detailed: bool = False) -> list:
         clean_results = []
+        if should_log_detailed:
+            self.logger.log(f'[{self.project["code"]}][Runs] Cleaning {len(results)} results from TestRail')
+        
         for result in results:
+            original_status_id = result.get('status_id')
+            
             if result['status_id'] != 3:
                 if len(result['attachment_ids']) > 0:
                     result['attachments'] = self.attachments.check_and_replace_attachments_array(result['attachment_ids'], self.project['code'])
                 del result['attachment_ids']
                 del result['version']
                 clean_results.append(result)
+                
+                if should_log_detailed:
+                    self.logger.log(f'[{self.project["code"]}][Runs] Kept result: test_id={result.get("test_id")}, status_id={original_status_id}')
+            else:
+                if should_log_detailed:
+                    self.logger.log(f'[{self.project["code"]}][Runs] Filtered out result: test_id={result.get("test_id")}, status_id={original_status_id} (status_id=3)')
+
+        if should_log_detailed:
+            self.logger.log(f'[{self.project["code"]}][Runs] Cleaned results: {len(clean_results)} kept out of {len(results)} total')
 
         return clean_results
 
@@ -272,7 +316,14 @@ class Runs:
 
         return cleaned
 
-    async def _import_results(self, tr_run, qase_run_id, cases_map, results) -> None:
+    async def _import_results(self, tr_run, qase_run_id, cases_map, results, should_log_detailed: bool = False) -> None:
+        if should_log_detailed:
+            self.logger.log(f'[{self.project["code"]}][Runs] Sending {len(results)} results to Qase for run {tr_run["name"]} [{tr_run["id"]}]')
+            # Log sample results being sent to Qase
+            sample_results = results[:3] if len(results) > 3 else results
+            for i, result in enumerate(sample_results):
+                self.logger.log(f'[{self.project["code"]}][Runs] Sample result {i+1}: test_id={result.get("test_id")}, status_id={result.get("status_id")}, comment_length={len(str(result.get("comment", "")))}')
+        
         await self.pools.qs(
             self.qase.send_bulk_results,
             tr_run,
