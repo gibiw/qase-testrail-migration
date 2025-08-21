@@ -196,15 +196,35 @@ class Cases:
                         custom_field, case[field_name])
                     if value:
                         if type(value) == str or type(value) == int:
-                            result_value = str(int(value)+1)
-                            data['custom_field'][str(custom_field['qase_id'])] = result_value
-                            self.logger.log(
-                                f'[{self.project["code"]}][Tests] Custom field {name} (ID: {custom_field["qase_id"]}): value={value} -> result={result_value}', 'info')
+                            # Use the project-specific mapping from TestRail key to Qase ID
+                            if ('tr_key_to_qase_id_by_project' in custom_field and 
+                                self.project['testrail_id'] in custom_field['tr_key_to_qase_id_by_project'] and
+                                str(value) in custom_field['tr_key_to_qase_id_by_project'][self.project['testrail_id']]):
+                                
+                                qase_id = custom_field['tr_key_to_qase_id_by_project'][self.project['testrail_id']][str(value)]
+                                data['custom_field'][str(custom_field['qase_id'])] = str(qase_id)
+                                self.logger.log(f'[{self.project["code"]}][Tests] Mapped TestRail value {value} to Qase ID {qase_id} for project {self.project["testrail_id"]}')
+                            else:
+                                # Fallback to old logic if mapping not available
+                                data['custom_field'][str(custom_field['qase_id'])] = str(int(value) + 1)
+                                self.logger.log(f'[{self.project["code"]}][Tests] Using fallback mapping for value {value} in project {self.project["testrail_id"]}')
                         if type(value) == list:
-                            result_value = ','.join(str(int(v)+1) for v in value)
-                            data['custom_field'][str(custom_field['qase_id'])] = result_value
-                            self.logger.log(
-                                f'[{self.project["code"]}][Tests] Custom field {name} (ID: {custom_field["qase_id"]}): value={value} -> result={result_value}', 'info')
+                            # Handle list values
+                            qase_ids = []
+                            for v in value:
+                                if ('tr_key_to_qase_id_by_project' in custom_field and 
+                                    self.project['testrail_id'] in custom_field['tr_key_to_qase_id_by_project'] and
+                                    str(v) in custom_field['tr_key_to_qase_id_by_project'][self.project['testrail_id']]):
+                                    
+                                    qase_id = custom_field['tr_key_to_qase_id_by_project'][self.project['testrail_id']][str(v)]
+                                    qase_ids.append(str(qase_id))
+                                    self.logger.log(f'[{self.project["code"]}][Tests] Mapped TestRail value {v} to Qase ID {qase_id} for project {self.project["testrail_id"]}')
+                                else:
+                                    # Fallback to old logic
+                                    qase_ids.append(str(int(v) + 1))
+                                    self.logger.log(f'[{self.project["code"]}][Tests] Using fallback mapping for value {v} in project {self.project["testrail_id"]}')
+                            
+                            data['custom_field'][str(custom_field['qase_id'])] = ','.join(qase_ids)
                     else:
                         # Log when validation returns None for debugging
                         self.logger.log(
@@ -428,23 +448,32 @@ class Cases:
 
     # Done. Method validates if custom field value exists (skip)
     def _validate_custom_field_values(self, custom_field: dict, value: Union[str, List]) -> Optional[Union[str, list]]:
-        if len(custom_field['configs']) > 0 and 'options' in custom_field['configs'][0] and 'items' in custom_field['configs'][0]['options'] and len(custom_field['configs'][0]['options']['items']) > 0:
-            values = self.__split_values(
-                custom_field['configs'][0]['options']['items'])
-            
+        # Get project-specific values if available
+        project_values = None
+        if 'project_values' in custom_field and self.project['testrail_id'] in custom_field['project_values']:
+            project_values = custom_field['project_values'][self.project['testrail_id']]
+            self.logger.log(f'[{self.project["code"]}][Tests] Using project-specific values for field {custom_field["name"]} in project {self.project["testrail_id"]}')
+        
+        # Fallback to first config if no project-specific values
+        if project_values is None and len(custom_field['configs']) > 0:
+            if 'options' in custom_field['configs'][0] and 'items' in custom_field['configs'][0]['options']:
+                project_values = self.__split_values(custom_field['configs'][0]['options']['items'])
+                self.logger.log(f'[{self.project["code"]}][Tests] Using fallback values for field {custom_field["name"]} in project {self.project["testrail_id"]}')
+        
+        if project_values and len(project_values) > 0:
             # Create reverse mapping for better value matching
-            value_to_key = {v.strip(): k for k, v in values.items()}
+            value_to_key = {v.strip(): k for k, v in project_values.items()}
             
             if type(value) == str or type(value) == int:
                 str_value = str(value).strip()
                 
                 # First try exact key match
-                if str_value in values.keys():
+                if str_value in project_values.keys():
                     return value
                 
                 # Then try value match (case-insensitive)
-                if str_value.lower() in [v.lower() for v in values.values()]:
-                    for k, v in values.items():
+                if str_value.lower() in [v.lower() for v in project_values.values()]:
+                    for k, v in project_values.items():
                         if v.lower() == str_value.lower():
                             return k
                 
@@ -453,23 +482,23 @@ class Cases:
                     parts = [part.strip() for part in str_value.split(',')]
                     matched_parts = []
                     for part in parts:
-                        if part in values.keys():
+                        if part in project_values.keys():
                             matched_parts.append(part)
-                        elif part.lower() in [v.lower() for v in values.values()]:
-                            for k, v in values.items():
+                        elif part.lower() in [v.lower() for v in project_values.values()]:
+                            for k, v in project_values.items():
                                 if v.lower() == part.lower():
                                     matched_parts.append(k)
                                     break
                         else:
                             self.logger.log(
-                                f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has unmatched value "{part}" in "{str_value}"', 'warning')
+                                f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has unmatched value "{part}" in "{str_value}" for project {self.project["testrail_id"]}', 'warning')
                     
                     if matched_parts:
                         return matched_parts
                 
                 # Log the issue but don't use fallback - preserve original value
                 self.logger.log(
-                    f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has unmatched value "{str_value}", preserving original', 'warning')
+                    f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has unmatched value "{str_value}" for project {self.project["testrail_id"]}, preserving original', 'warning')
                 return value
                 
             elif type(value) == list:
@@ -478,13 +507,13 @@ class Cases:
                     str_item = str(item).strip()
                     
                     # Try exact key match
-                    if str_item in values.keys():
+                    if str_item in project_values.keys():
                         filtered_values.append(item)
                         continue
                     
                     # Try value match (case-insensitive)
-                    if str_item.lower() in [v.lower() for v in values.values()]:
-                        for k, v in values.items():
+                    if str_item.lower() in [v.lower() for v in project_values.values()]:
+                        for k, v in project_values.items():
                             if v.lower() == str_item.lower():
                                 filtered_values.append(k)
                                 break
@@ -494,26 +523,26 @@ class Cases:
                     if ',' in str_item:
                         parts = [part.strip() for part in str_item.split(',')]
                         for part in parts:
-                            if part in values.keys():
+                            if part in project_values.keys():
                                 filtered_values.append(part)
-                            elif part.lower() in [v.lower() for v in values.values()]:
-                                for k, v in values.items():
+                            elif part.lower() in [v.lower() for v in project_values.values()]:
+                                for k, v in project_values.items():
                                     if v.lower() == part.lower():
                                         filtered_values.append(k)
                                         break
                             else:
                                 self.logger.log(
-                                    f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has unmatched list item "{part}" in "{str_item}"', 'warning')
+                                    f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has unmatched list item "{part}" in "{str_item}" for project {self.project["testrail_id"]}', 'warning')
                     else:
                         self.logger.log(
-                            f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has unmatched list value "{str_item}"', 'warning')
+                            f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has unmatched list value "{str_item}" for project {self.project["testrail_id"]}', 'warning')
                 
                 if filtered_values:
                     return filtered_values
                 else:
                     # Log but preserve original value instead of using fallback
                     self.logger.log(
-                        f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has no matched values from "{value}", preserving original', 'warning')
+                        f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has no matched values from "{value}" for project {self.project["testrail_id"]}, preserving original', 'warning')
                     return value
             
             return value
