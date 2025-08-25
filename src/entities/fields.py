@@ -111,7 +111,9 @@ class Fields:
                 qase_id = field_data.get('qase_id', 'N/A')
                 field_type = field_data.get('type_id', 'N/A')
                 field_label = field_data.get('label', field_name)
-                self.logger.log(f'[Fields]   "{field_name}" -> Qase ID {qase_id} (Type: {field_type}, Label: "{field_label}")')
+                qase_values = field_data.get('qase_values', {})
+                qase_values_str = f" (Values: {qase_values})" if qase_values else ""
+                self.logger.log(f'[Fields]   "{field_name}" -> Qase ID {qase_id} (Type: {field_type}, Label: "{field_label}"){qase_values_str}')
         else:
             self.logger.log('[Fields]   No custom fields mapped')
         

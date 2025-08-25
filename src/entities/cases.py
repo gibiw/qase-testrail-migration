@@ -184,18 +184,37 @@ class Cases:
 
     # Done
     def _import_custom_fields_for_case(self, case: dict, data: dict) -> dict:
+        self.logger.log(f'[{self.project["code"]}][Tests] Starting custom fields import for case: {case.get("title", "Unknown")}')
+        self.logger.log(f'[{self.project["code"]}][Tests] Available custom fields in mappings: {list(self.mappings.custom_fields.keys())}')
+        
         for field_name in case:
             if field_name.startswith('custom_') and field_name[len('custom_'):] in self.mappings.custom_fields and case[field_name]:
                 name = field_name[len('custom_'):]
                 custom_field = self.mappings.custom_fields[name]
+                self.logger.log(f'[{self.project["code"]}][Tests] Processing custom field: {field_name} -> {name}')
+                self.logger.log(f'[{self.project["code"]}][Tests] Field value from TestRail: {case[field_name]}')
+                self.logger.log(f'[{self.project["code"]}][Tests] Field type_id: {custom_field.get("type_id")}')
+                
                 # Importing step
 
                 if custom_field['type_id'] in (6, 12):
                     # Importing dropdown and multiselect values
+                    self.logger.log(f'[{self.project["code"]}][Tests] Field {name} is dropdown/multiselect (type_id: {custom_field["type_id"]})')
+                    self.logger.log(f'[{self.project["code"]}][Tests] Field has tr_key_to_qase_id_by_project: {"tr_key_to_qase_id_by_project" in custom_field}')
+                    if "tr_key_to_qase_id_by_project" in custom_field:
+                        self.logger.log(f'[{self.project["code"]}][Tests] Available projects in mapping: {list(custom_field["tr_key_to_qase_id_by_project"].keys())}')
+                        if self.project['testrail_id'] in custom_field['tr_key_to_qase_id_by_project']:
+                            project_mapping = custom_field['tr_key_to_qase_id_by_project'][self.project['testrail_id']]
+                            self.logger.log(f'[{self.project["code"]}][Tests] Project {self.project["testrail_id"]} mapping: {project_mapping}')
+                    
                     value = self._validate_custom_field_values(
                         custom_field, case[field_name])
                     if value:
                         if type(value) == str or type(value) == int:
+                            self.logger.log(f'[{self.project["code"]}][Tests] Processing custom field "{custom_field["name"]}" with value: {value} (type: {type(value)})')
+                            self.logger.log(f'[{self.project["code"]}][Tests] Custom field data: {custom_field}')
+                            self.logger.log(f'[{self.project["code"]}][Tests] Project TestRail ID: {self.project["testrail_id"]}')
+                            
                             # Use the project-specific mapping from TestRail key to Qase ID
                             if ('tr_key_to_qase_id_by_project' in custom_field and 
                                 self.project['testrail_id'] in custom_field['tr_key_to_qase_id_by_project'] and
@@ -203,28 +222,56 @@ class Cases:
                                 
                                 qase_id = custom_field['tr_key_to_qase_id_by_project'][self.project['testrail_id']][str(value)]
                                 data['custom_field'][str(custom_field['qase_id'])] = str(qase_id)
-                                self.logger.log(f'[{self.project["code"]}][Tests] Mapped TestRail value {value} to Qase ID {qase_id} for project {self.project["testrail_id"]}')
+                                self.logger.log(f'[{self.project["code"]}][Tests] SUCCESS: Mapped TestRail value {value} to Qase ID {qase_id} for project {self.project["testrail_id"]}')
                             else:
+                                # Log why the mapping failed
+                                if 'tr_key_to_qase_id_by_project' not in custom_field:
+                                    self.logger.log(f'[{self.project["code"]}][Tests] FAILED: No tr_key_to_qase_id_by_project in custom field')
+                                elif self.project['testrail_id'] not in custom_field['tr_key_to_qase_id_by_project']:
+                                    self.logger.log(f'[{self.project["code"]}][Tests] FAILED: Project {self.project["testrail_id"]} not found in tr_key_to_qase_id_by_project. Available projects: {list(custom_field["tr_key_to_qase_id_by_project"].keys())}')
+                                elif str(value) not in custom_field['tr_key_to_qase_id_by_project'][self.project['testrail_id']]:
+                                    available_values = list(custom_field['tr_key_to_qase_id_by_project'][self.project['testrail_id']].keys())
+                                    self.logger.log(f'[{self.project["code"]}][Tests] FAILED: Value {value} not found in project {self.project["testrail_id"]}. Available values: {available_values}')
+                                
                                 # Fallback to old logic if mapping not available
-                                data['custom_field'][str(custom_field['qase_id'])] = str(int(value) + 1)
-                                self.logger.log(f'[{self.project["code"]}][Tests] Using fallback mapping for value {value} in project {self.project["testrail_id"]}')
+                                fallback_id = str(int(value) + 1)
+                                data['custom_field'][str(custom_field['qase_id'])] = fallback_id
+                                self.logger.log(f'[{self.project["code"]}][Tests] Using fallback mapping for value {value} -> {fallback_id} in project {self.project["testrail_id"]}')
                         if type(value) == list:
+                            self.logger.log(f'[{self.project["code"]}][Tests] Processing custom field "{custom_field["name"]}" with list value: {value}')
+                            self.logger.log(f'[{self.project["code"]}][Tests] Custom field data: {custom_field}')
+                            self.logger.log(f'[{self.project["code"]}][Tests] Project TestRail ID: {self.project["testrail_id"]}')
+                            
                             # Handle list values
                             qase_ids = []
                             for v in value:
+                                self.logger.log(f'[{self.project["code"]}][Tests] Processing list item: {v}')
+                                
                                 if ('tr_key_to_qase_id_by_project' in custom_field and 
                                     self.project['testrail_id'] in custom_field['tr_key_to_qase_id_by_project'] and
                                     str(v) in custom_field['tr_key_to_qase_id_by_project'][self.project['testrail_id']]):
                                     
                                     qase_id = custom_field['tr_key_to_qase_id_by_project'][self.project['testrail_id']][str(v)]
                                     qase_ids.append(str(qase_id))
-                                    self.logger.log(f'[{self.project["code"]}][Tests] Mapped TestRail value {v} to Qase ID {qase_id} for project {self.project["testrail_id"]}')
+                                    self.logger.log(f'[{self.project["code"]}][Tests] SUCCESS: Mapped TestRail value {v} to Qase ID {qase_id} for project {self.project["testrail_id"]}')
                                 else:
+                                    # Log why the mapping failed for this list item
+                                    if 'tr_key_to_qase_id_by_project' not in custom_field:
+                                        self.logger.log(f'[{self.project["code"]}][Tests] FAILED: No tr_key_to_qase_id_by_project in custom field for list item {v}')
+                                    elif self.project['testrail_id'] not in custom_field['tr_key_to_qase_id_by_project']:
+                                        self.logger.log(f'[{self.project["code"]}][Tests] FAILED: Project {self.project["testrail_id"]} not found in tr_key_to_qase_id_by_project for list item {v}. Available projects: {list(custom_field["tr_key_to_qase_id_by_project"].keys())}')
+                                    elif str(v) not in custom_field['tr_key_to_qase_id_by_project'][self.project['testrail_id']]:
+                                        available_values = list(custom_field['tr_key_to_qase_id_by_project'][self.project['testrail_id']].keys())
+                                        self.logger.log(f'[{self.project["code"]}][Tests] FAILED: List item value {v} not found in project {self.project["testrail_id"]}. Available values: {available_values}')
+                                    
                                     # Fallback to old logic
-                                    qase_ids.append(str(int(v) + 1))
-                                    self.logger.log(f'[{self.project["code"]}][Tests] Using fallback mapping for value {v} in project {self.project["testrail_id"]}')
+                                    fallback_id = str(int(v) + 1)
+                                    qase_ids.append(fallback_id)
+                                    self.logger.log(f'[{self.project["code"]}][Tests] Using fallback mapping for list item {v} -> {fallback_id} in project {self.project["testrail_id"]}')
                             
-                            data['custom_field'][str(custom_field['qase_id'])] = ','.join(qase_ids)
+                            final_value = ','.join(qase_ids)
+                            data['custom_field'][str(custom_field['qase_id'])] = final_value
+                            self.logger.log(f'[{self.project["code"]}][Tests] Final list mapping result: {value} -> {final_value}')
                     else:
                         # Log when validation returns None for debugging
                         self.logger.log(
@@ -291,12 +338,13 @@ class Cases:
         # Handle required custom fields that don't exist in TestRail data
         data = self._handle_required_custom_fields(data)
         
+        self.logger.log(f'[{self.project["code"]}][Tests] Final custom fields result: {data.get("custom_field", {})}')
         self.logger.log(f'[{self.project["code"]}][Tests] Data before validation: {data}', 'info')
 
-        # Validate and fix any invalid custom field values
-        data = self._validate_and_fix_custom_field_values(data)
+        # # Validate and fix any invalid custom field values
+        # data = self._validate_and_fix_custom_field_values(data)
 
-        self.logger.log(f'[{self.project["code"]}][Tests] Data after validation: {data}', 'info')
+        # self.logger.log(f'[{self.project["code"]}][Tests] Data after validation: {data}', 'info')
         
         return data
 
@@ -371,7 +419,7 @@ class Cases:
                 for qase_field in qase_custom_fields:
                     field_id_str = str(qase_field.id)
                     if field_id_str in data['custom_field']:
-                        current_value = self.__split_values(data['custom_field'][field_id_str])
+                        current_value = data['custom_field'][field_id_str]
                         
                         # For dropdown/select fields, validate the value
                         if qase_field.type.lower() in ['selectbox', 'radio', 'multiselect', 'checkbox']:
