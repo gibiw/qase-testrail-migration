@@ -201,8 +201,26 @@ class Cases:
                         value = self._validate_custom_field_values(custom_field, case[field_name])
                         if value:
                             if type(value) == str or type(value) == int:
-                                data['custom_field'][str(custom_field['qase_id'])] = str(int(value) + 1)
-                                self.logger.log(f'[{self.project["code"]}][Tests] Set field {custom_field["name"]} to value: {str(int(value) + 1)}')
+                                # For single values, we need to map TestRail value to Qase value
+                                testrail_key = str(value)
+                                qase_value = None
+                                
+                                # Try to find mapping in tr_key_to_qase_id first
+                                if custom_field.get('tr_key_to_qase_id') and testrail_key in custom_field['tr_key_to_qase_id']:
+                                    qase_value = custom_field['tr_key_to_qase_id'][testrail_key]
+                                    self.logger.log(f'[{self.project["code"]}][Tests] Using tr_key_to_qase_id mapping for field {custom_field["name"]}: {testrail_key} -> {qase_value}')
+                                elif custom_field.get('qase_values') and testrail_key in custom_field['qase_values']:
+                                    # Fallback to old logic if tr_key_to_qase_id not available
+                                    qase_value = custom_field['qase_values'][testrail_key]
+                                    self.logger.log(f'[{self.project["code"]}][Tests] Using qase_values fallback for field {custom_field["name"]}: {testrail_key} -> {qase_value}')
+                                
+                                if qase_value is None:
+                                    # If no mapping found, log warning and skip this field
+                                    self.logger.log(f'[{self.project["code"]}][Tests] Warning: No Qase mapping found for TestRail value {testrail_key} in field {custom_field["name"]}', 'warning')
+                                    continue
+                                
+                                data['custom_field'][str(custom_field['qase_id'])] = str(qase_value)
+                                self.logger.log(f'[{self.project["code"]}][Tests] Set field {custom_field["name"]} to value: {str(qase_value)}')
 
                             elif type(value) == list:
                                 # Multiple values - handle based on field type
@@ -282,8 +300,26 @@ class Cases:
                         value = self._validate_custom_field_values(custom_field, case[field_name])
                         if value:
                             if type(value) == str or type(value) == int:
-                                data['custom_field'][str(custom_field['qase_id'])] = str(int(value) + 1)
-                                self.logger.log(f'[{self.project["code"]}][Tests] Set global field {custom_field["name"]} to value: {str(int(value) + 1)}')
+                                # For single values, we need to map TestRail value to Qase value
+                                testrail_key = str(value)
+                                qase_value = None
+                                
+                                # Try to find mapping in tr_key_to_qase_id first
+                                if custom_field.get('tr_key_to_qase_id') and testrail_key in custom_field['tr_key_to_qase_id']:
+                                    qase_value = custom_field['tr_key_to_qase_id'][testrail_key]
+                                    self.logger.log(f'[{self.project["code"]}][Tests] Using tr_key_to_qase_id mapping for global field {custom_field["name"]}: {testrail_key} -> {qase_value}')
+                                elif custom_field.get('qase_values') and testrail_key in custom_field['qase_values']:
+                                    # Fallback to old logic if tr_key_to_qase_id not available
+                                    qase_value = custom_field['qase_values'][testrail_key]
+                                    self.logger.log(f'[{self.project["code"]}][Tests] Using qase_values fallback for global field {custom_field["name"]}: {testrail_key} -> {qase_value}')
+                                
+                                if qase_value is None:
+                                    # If no mapping found, log warning and skip this field
+                                    self.logger.log(f'[{self.project["code"]}][Tests] Warning: No Qase mapping found for TestRail value {testrail_key} in global field {custom_field["name"]}', 'warning')
+                                    continue
+                                
+                                data['custom_field'][str(custom_field['qase_id'])] = str(qase_value)
+                                self.logger.log(f'[{self.project["code"]}][Tests] Set global field {custom_field["name"]} to value: {str(qase_value)}')
 
                             elif type(value) == list:
                                 # Multiple values - handle based on field type
@@ -491,6 +527,8 @@ class Cases:
         if not value:
             return None
 
+        self.logger.log(f'[{self.project["code"]}][Tests] Validating field {custom_field["name"]} (type_id: {custom_field["type_id"]}) with value: {value}')
+
         # For project-specific fields, use the field's own config
         if custom_field.get('project_id') and custom_field.get('project_code'):
             configs = custom_field['configs']
@@ -553,6 +591,7 @@ class Cases:
                     # Don't add invalid values to filtered_values
 
             if filtered_values:
+                self.logger.log(f'[{self.project["code"]}][Tests] Field {custom_field["name"]} validation successful: {filtered_values}')
                 return filtered_values
             else:
                 self.logger.log(f'[{self.project["code"]}][Tests] No valid values found for field {custom_field["name"]}', 'warning')
@@ -561,6 +600,7 @@ class Cases:
         else:
             # Single value
             if str(value) in values.keys():
+                self.logger.log(f'[{self.project["code"]}][Tests] Field {custom_field["name"]} validation successful: {value}')
                 return [value]
             else:
                 self.logger.log(
