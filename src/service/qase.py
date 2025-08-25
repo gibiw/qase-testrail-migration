@@ -276,7 +276,7 @@ class QaseService:
     def __split_values(string: str, delimiter: str = ',') -> dict:
         items = string.split('\n')  # split items into a list
         result = {}
-        seen_titles = set()  # Track seen titles to avoid duplicates
+        seen_titles = set()  # Track seen titles to avoid duplicates (case-insensitive)
         
         for item in items:
             if item == '':
@@ -285,9 +285,11 @@ class QaseService:
             key, value = item.split(delimiter)
             # Trim the title and skip empty titles
             trimmed_value = value.strip()
-            if trimmed_value and trimmed_value not in seen_titles:
-                result[key] = trimmed_value
-                seen_titles.add(trimmed_value)
+            trimmed_value_lower = trimmed_value.lower()
+            
+            if trimmed_value and trimmed_value_lower not in seen_titles:
+                result[key.strip()] = trimmed_value
+                seen_titles.add(trimmed_value_lower)
         return result
 
     def get_projects(self, limit=100, offset=0):
@@ -642,30 +644,43 @@ class QaseService:
                     except (json.JSONDecodeError, AttributeError):
                         current_values = []
                 
+                # Create a set of normalized existing values for efficient lookup
+                existing_normalized_values = set()
+                for current_value in current_values:
+                    if hasattr(current_value, 'title'):
+                        existing_normalized_values.add(current_value.title.strip().lower())
+                    elif isinstance(current_value, dict) and current_value.get('title'):
+                        existing_normalized_values.add(current_value.get('title').strip().lower())
+                
                 # Collect all new values that need to be added
                 missing_values = []
+                seen_values = set()  # Track values we've already processed to avoid duplicates
+                
                 for project_id, project_values in field['project_values'].items():
                     for tr_key, value in project_values.items():
-                        # Check if this value already exists in current field
-                        value_exists = False
-                        for current_value in current_values:
-                            if hasattr(current_value, 'title') and current_value.title == value:
-                                value_exists = True
-                                break
-                            elif isinstance(current_value, dict) and current_value.get('title') == value:
-                                value_exists = True
-                                break
+                        # Normalize the value for comparison
+                        normalized_value = value.strip()
+                        normalized_value_lower = normalized_value.lower()
                         
-                        if not value_exists:
-                            missing_values.append({
-                                'id': len(current_values) + len(missing_values) + 1,
-                                'title': value
-                            })
+                        # Skip if we've already processed this normalized value or if it exists in Qase
+                        if (normalized_value_lower in existing_normalized_values or 
+                            normalized_value_lower in seen_values):
+                            continue
+                            
+                        seen_values.add(normalized_value_lower)
+                        missing_values.append({
+                            'id': len(current_values) + len(missing_values) + 1,
+                            'title': normalized_value
+                        })
                 
                 if missing_values:
                     needs_update = True
                     update_data['missing_values'] = missing_values
                     self.logger.log(f'Field {field["label"]} needs update: {len(missing_values)} new values to add')
+                    
+                    # Log detailed information about missing values
+                    for missing_value in missing_values:
+                        self.logger.log(f'Field {field["label"]} missing value: "{missing_value["title"]}" (ID: {missing_value["id"]})')
             
             return needs_update, update_data
             
