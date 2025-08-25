@@ -296,7 +296,7 @@ class Fields:
 
                             
                             # Refresh field data after update
-                            if 'missing_values' in update_data:
+                            if 'missing_values' in update_data or 'needs_mapping_update' in update_data:
                                 # Get updated field to refresh values
                                 updated_field = await self.pools.qs(self.qase.get_custom_field, qase_field.id)
 
@@ -313,8 +313,33 @@ class Fields:
                                             elif isinstance(value, dict) and 'id' in value and 'title' in value:
 
                                                 field['qase_values'][value['id']] = value['title']
-                                    except (json.JSONDecodeError, AttributeError):
-                                        pass
+                                        
+                                        # Also create TestRail ID to Qase ID mapping for project fields
+                                        if 'configs' in field and len(field['configs']) > 0:
+                                            config = field['configs'][0]
+                                            if 'options' in config and 'items' in config['options']:
+                                                items = config['options']['items']
+                                                if items:
+                                                    # Parse items string into TestRail ID mapping
+                                                    tr_values = {}
+                                                    for line in items.split('\n'):
+                                                        if ',' in line:
+                                                            key, title = line.split(',', 1)
+                                                            tr_values[key.strip()] = title.strip()
+                                                    
+                                                    # Create TestRail ID to Qase ID mapping
+                                                    field['tr_key_to_qase_id'] = {}
+                                                    for tr_key, tr_title in tr_values.items():
+                                                        for qase_id, qase_title in field['qase_values'].items():
+
+                                                            if tr_title.strip() == qase_title.strip():
+                                                                field['tr_key_to_qase_id'][tr_key] = qase_id
+                                                                break
+                                                    
+                                                    self.logger.log(f'[Fields] Created TestRail to Qase mapping for project field {field["label"]}: {field["tr_key_to_qase_id"]}')
+                                                
+                                    except (json.JSONDecodeError, AttributeError) as e:
+                                        self.logger.log(f'[Fields] Error updating project field mapping: {e}', 'warning')
                         else:
                             self.logger.log(f'[Fields] Failed to update project field {field["label"]}', 'warning')
 
