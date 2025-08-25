@@ -194,6 +194,18 @@ class Cases:
                 self.logger.log(f'[{self.project["code"]}][Tests] Processing custom field: {field_name} -> {name}')
                 self.logger.log(f'[{self.project["code"]}][Tests] Field value from TestRail: {case[field_name]}')
                 self.logger.log(f'[{self.project["code"]}][Tests] Field type_id: {custom_field.get("type_id")}')
+                self.logger.log(f'[{self.project["code"]}][Tests] Field Qase ID: {custom_field.get("qase_id")}')
+                
+                # Log available project values for debugging
+                if 'project_values' in custom_field and self.project['testrail_id'] in custom_field['project_values']:
+                    project_values = custom_field['project_values'][self.project['testrail_id']]
+                    self.logger.log(f'[{self.project["code"]}][Tests] Available project values for {name}: {project_values}')
+                else:
+                    self.logger.log(f'[{self.project["code"]}][Tests] No project values available for {name} in project {self.project["testrail_id"]}')
+                    # Try to get values from configs as fallback
+                    if len(custom_field.get('configs', [])) > 0 and 'options' in custom_field['configs'][0]:
+                        config_values = self.split_values(custom_field['configs'][0]['options']['items'])
+                        self.logger.log(f'[{self.project["code"]}][Tests] Using config values as fallback for {name}: {config_values}')
                 
                 # Importing step
 
@@ -215,28 +227,115 @@ class Cases:
                             self.logger.log(f'[{self.project["code"]}][Tests] Custom field data: {custom_field}')
                             self.logger.log(f'[{self.project["code"]}][Tests] Project TestRail ID: {self.project["testrail_id"]}')
                             
-                            # Use the project-specific mapping from TestRail key to Qase ID
-                            if ('tr_key_to_qase_id_by_project' in custom_field and 
-                                self.project['testrail_id'] in custom_field['tr_key_to_qase_id_by_project'] and
-                                str(value) in custom_field['tr_key_to_qase_id_by_project'][self.project['testrail_id']]):
+                            # For multiselect fields, check if the string contains comma-separated values
+                            if custom_field['type_id'] == 12 and ',' in str(value):
+                                # Handle comma-separated values for multiselect fields
+                                str_value = str(value).strip()
+                                parts = [part.strip() for part in str_value.split(',')]
+                                qase_ids = []
                                 
-                                qase_id = custom_field['tr_key_to_qase_id_by_project'][self.project['testrail_id']][str(value)]
-                                data['custom_field'][str(custom_field['qase_id'])] = str(qase_id)
-                                self.logger.log(f'[{self.project["code"]}][Tests] SUCCESS: Mapped TestRail value {value} to Qase ID {qase_id} for project {self.project["testrail_id"]}')
+                                for part in parts:
+                                    if ('tr_key_to_qase_id_by_project' in custom_field and 
+                                        self.project['testrail_id'] in custom_field['tr_key_to_qase_id_by_project'] and
+                                        part in custom_field['tr_key_to_qase_id_by_project'][self.project['testrail_id']]):
+                                        
+                                        qase_id = custom_field['tr_key_to_qase_id_by_project'][self.project['testrail_id']][part]
+                                        qase_ids.append(str(qase_id))
+                                        self.logger.log(f'[{self.project["code"]}][Tests] SUCCESS: Mapped TestRail value {part} to Qase ID {qase_id} for project {self.project["testrail_id"]}')
+                                    else:
+                                        # Try to find a valid value by looking at the available options
+                                        if 'project_values' in custom_field and self.project['testrail_id'] in custom_field['project_values']:
+                                            project_values = custom_field['project_values'][self.project['testrail_id']]
+                                            # Find the first valid value that might be similar
+                                            for key, val in project_values.items():
+                                                if part == str(key) or part == str(val):
+                                                    qase_ids.append(str(key))
+                                                    self.logger.log(f'[{self.project["code"]}][Tests] Found similar value for {part}: {key} -> {val}')
+                                                    break
+                                            else:
+                                                # If no similar value found, use the first available value as fallback
+                                                first_key = list(project_values.keys())[0]
+                                                qase_ids.append(str(first_key))
+                                                self.logger.log(f'[{self.project["code"]}][Tests] Using fallback value for {part}: {first_key} -> {project_values[first_key]}')
+                                        else:
+                                            # Try to use config values as fallback
+                                            if len(custom_field.get('configs', [])) > 0 and 'options' in custom_field['configs'][0]:
+                                                config_values = self.split_values(custom_field['configs'][0]['options']['items'])
+                                                if config_values:
+                                                    first_key = list(config_values.keys())[0]
+                                                    qase_ids.append(str(first_key))
+                                                    self.logger.log(f'[{self.project["code"]}][Tests] Using config fallback value for {part}: {first_key} -> {config_values[first_key]}')
+                                                else:
+                                                    # Use fallback logic if no config values available
+                                                    fallback_id = str(int(part) + 1)
+                                                    qase_ids.append(fallback_id)
+                                                    self.logger.log(f'[{self.project["code"]}][Tests] Using fallback mapping for {part} -> {fallback_id} in project {self.project["testrail_id"]}')
+                                            else:
+                                                # Use fallback logic if no project values available
+                                                fallback_id = str(int(part) + 1)
+                                                qase_ids.append(fallback_id)
+                                                self.logger.log(f'[{self.project["code"]}][Tests] Using fallback mapping for {part} -> {fallback_id} in project {self.project["testrail_id"]}')
+                                
+                                final_value = ','.join(qase_ids)
+                                data['custom_field'][str(custom_field['qase_id'])] = final_value
+                                self.logger.log(f'[{self.project["code"]}][Tests] Final multiselect mapping result: {value} -> {final_value}')
                             else:
-                                # Log why the mapping failed
-                                if 'tr_key_to_qase_id_by_project' not in custom_field:
-                                    self.logger.log(f'[{self.project["code"]}][Tests] FAILED: No tr_key_to_qase_id_by_project in custom field')
-                                elif self.project['testrail_id'] not in custom_field['tr_key_to_qase_id_by_project']:
-                                    self.logger.log(f'[{self.project["code"]}][Tests] FAILED: Project {self.project["testrail_id"]} not found in tr_key_to_qase_id_by_project. Available projects: {list(custom_field["tr_key_to_qase_id_by_project"].keys())}')
-                                elif str(value) not in custom_field['tr_key_to_qase_id_by_project'][self.project['testrail_id']]:
-                                    available_values = list(custom_field['tr_key_to_qase_id_by_project'][self.project['testrail_id']].keys())
-                                    self.logger.log(f'[{self.project["code"]}][Tests] FAILED: Value {value} not found in project {self.project["testrail_id"]}. Available values: {available_values}')
-                                
-                                # Fallback to old logic if mapping not available
-                                fallback_id = str(int(value) + 1)
-                                data['custom_field'][str(custom_field['qase_id'])] = fallback_id
-                                self.logger.log(f'[{self.project["code"]}][Tests] Using fallback mapping for value {value} -> {fallback_id} in project {self.project["testrail_id"]}')
+                                # Use the project-specific mapping from TestRail key to Qase ID
+                                if ('tr_key_to_qase_id_by_project' in custom_field and 
+                                    self.project['testrail_id'] in custom_field['tr_key_to_qase_id_by_project'] and
+                                    str(value) in custom_field['tr_key_to_qase_id_by_project'][self.project['testrail_id']]):
+                                    
+                                    qase_id = custom_field['tr_key_to_qase_id_by_project'][self.project['testrail_id']][str(value)]
+                                    data['custom_field'][str(custom_field['qase_id'])] = str(qase_id)
+                                    self.logger.log(f'[{self.project["code"]}][Tests] SUCCESS: Mapped TestRail value {value} to Qase ID {qase_id} for project {self.project["testrail_id"]}')
+                                else:
+                                    # Log why the mapping failed
+                                    if 'tr_key_to_qase_id_by_project' not in custom_field:
+                                        self.logger.log(f'[{self.project["code"]}][Tests] FAILED: No tr_key_to_qase_id_by_project in custom field')
+                                    elif self.project['testrail_id'] not in custom_field['tr_key_to_qase_id_by_project']:
+                                        self.logger.log(f'[{self.project["code"]}][Tests] FAILED: Project {self.project["testrail_id"]} not found in tr_key_to_qase_id_by_project. Available projects: {list(custom_field["tr_key_to_qase_id_by_project"].keys())}')
+                                    elif str(value) not in custom_field['tr_key_to_qase_id_by_project'][self.project['testrail_id']]:
+                                        available_values = list(custom_field['tr_key_to_qase_id_by_project'][self.project['testrail_id']].keys())
+                                        self.logger.log(f'[{self.project["code"]}][Tests] FAILED: Value {value} not found in project {self.project["testrail_id"]}. Available values: {available_values}')
+                                    
+                                    # For multiselect fields, try to find a valid value
+                                    if custom_field['type_id'] == 12:
+                                        if 'project_values' in custom_field and self.project['testrail_id'] in custom_field['project_values']:
+                                            project_values = custom_field['project_values'][self.project['testrail_id']]
+                                            # Find the first valid value that might be similar
+                                            for key, val in project_values.items():
+                                                if str(value) == str(key) or str(value) == str(val):
+                                                    data['custom_field'][str(custom_field['qase_id'])] = str(key)
+                                                    self.logger.log(f'[{self.project["code"]}][Tests] Found similar value for {value}: {key} -> {val}')
+                                                    break
+                                            else:
+                                                # If no similar value found, use the first available value as fallback
+                                                first_key = list(project_values.keys())[0]
+                                                data['custom_field'][str(custom_field['qase_id'])] = str(first_key)
+                                                self.logger.log(f'[{self.project["code"]}][Tests] Using fallback value for {value}: {first_key} -> {project_values[first_key]}')
+                                        else:
+                                            # Try to use config values as fallback
+                                            if len(custom_field.get('configs', [])) > 0 and 'options' in custom_field['configs'][0]:
+                                                config_values = self.split_values(custom_field['configs'][0]['options']['items'])
+                                                if config_values:
+                                                    first_key = list(config_values.keys())[0]
+                                                    data['custom_field'][str(custom_field['qase_id'])] = str(first_key)
+                                                    self.logger.log(f'[{self.project["code"]}][Tests] Using config fallback value for {value}: {first_key} -> {config_values[first_key]}')
+                                                else:
+                                                    # Use fallback logic if no config values available
+                                                    fallback_id = str(int(value) + 1)
+                                                    data['custom_field'][str(custom_field['qase_id'])] = fallback_id
+                                                    self.logger.log(f'[{self.project["code"]}][Tests] Using fallback mapping for value {value} -> {fallback_id} in project {self.project["testrail_id"]}')
+                                            else:
+                                                # Use fallback logic if mapping not available
+                                                fallback_id = str(int(value) + 1)
+                                                data['custom_field'][str(custom_field['qase_id'])] = fallback_id
+                                                self.logger.log(f'[{self.project["code"]}][Tests] Using fallback mapping for value {value} -> {fallback_id} in project {self.project["testrail_id"]}')
+                                    else:
+                                        # Fallback to old logic if mapping not available
+                                        fallback_id = str(int(value) + 1)
+                                        data['custom_field'][str(custom_field['qase_id'])] = fallback_id
+                                        self.logger.log(f'[{self.project["code"]}][Tests] Using fallback mapping for value {value} -> {fallback_id} in project {self.project["testrail_id"]}')
                         if type(value) == list:
                             self.logger.log(f'[{self.project["code"]}][Tests] Processing custom field "{custom_field["name"]}" with list value: {value}')
                             self.logger.log(f'[{self.project["code"]}][Tests] Custom field data: {custom_field}')
@@ -264,10 +363,46 @@ class Cases:
                                         available_values = list(custom_field['tr_key_to_qase_id_by_project'][self.project['testrail_id']].keys())
                                         self.logger.log(f'[{self.project["code"]}][Tests] FAILED: List item value {v} not found in project {self.project["testrail_id"]}. Available values: {available_values}')
                                     
-                                    # Fallback to old logic
-                                    fallback_id = str(int(v) + 1)
-                                    qase_ids.append(fallback_id)
-                                    self.logger.log(f'[{self.project["code"]}][Tests] Using fallback mapping for list item {v} -> {fallback_id} in project {self.project["testrail_id"]}')
+                                    # For multiselect fields, we need to find a valid value
+                                    # Try to find a similar value or use a default
+                                    if custom_field['type_id'] == 12:  # multiselect
+                                        # Try to find a valid value by looking at the available options
+                                        if 'project_values' in custom_field and self.project['testrail_id'] in custom_field['project_values']:
+                                            project_values = custom_field['project_values'][self.project['testrail_id']]
+                                            # Find the first valid value that might be similar
+                                            for key, val in project_values.items():
+                                                if str(v) == str(key) or str(v) == str(val):
+                                                    qase_ids.append(str(key))
+                                                    self.logger.log(f'[{self.project["code"]}][Tests] Found similar value for {v}: {key} -> {val}')
+                                                    break
+                                            else:
+                                                # If no similar value found, use the first available value as fallback
+                                                first_key = list(project_values.keys())[0]
+                                                qase_ids.append(str(first_key))
+                                                self.logger.log(f'[{self.project["code"]}][Tests] Using fallback value for {v}: {first_key} -> {project_values[first_key]}')
+                                        else:
+                                            # Try to use config values as fallback
+                                            if len(custom_field.get('configs', [])) > 0 and 'options' in custom_field['configs'][0]:
+                                                config_values = self.split_values(custom_field['configs'][0]['options']['items'])
+                                                if config_values:
+                                                    first_key = list(config_values.keys())[0]
+                                                    qase_ids.append(str(first_key))
+                                                    self.logger.log(f'[{self.project["code"]}][Tests] Using config fallback value for {v}: {first_key} -> {config_values[first_key]}')
+                                                else:
+                                                    # Use fallback logic if no config values available
+                                                    fallback_id = str(int(v) + 1)
+                                                    qase_ids.append(fallback_id)
+                                                    self.logger.log(f'[{self.project["code"]}][Tests] Using fallback mapping for list item {v} -> {fallback_id} in project {self.project["testrail_id"]}')
+                                            else:
+                                                # Use fallback logic if no project values available
+                                                fallback_id = str(int(v) + 1)
+                                                qase_ids.append(fallback_id)
+                                                self.logger.log(f'[{self.project["code"]}][Tests] Using fallback mapping for list item {v} -> {fallback_id} in project {self.project["testrail_id"]}')
+                                    else:
+                                        # For non-multiselect fields, use fallback logic
+                                        fallback_id = str(int(v) + 1)
+                                        qase_ids.append(fallback_id)
+                                        self.logger.log(f'[{self.project["code"]}][Tests] Using fallback mapping for list item {v} -> {fallback_id} in project {self.project["testrail_id"]}')
                             
                             final_value = ','.join(qase_ids)
                             data['custom_field'][str(custom_field['qase_id'])] = final_value
@@ -341,10 +476,10 @@ class Cases:
         self.logger.log(f'[{self.project["code"]}][Tests] Final custom fields result: {data.get("custom_field", {})}')
         self.logger.log(f'[{self.project["code"]}][Tests] Data before validation: {data}', 'info')
 
-        # # Validate and fix any invalid custom field values
-        # data = self._validate_and_fix_custom_field_values(data)
+        # Validate and fix any invalid custom field values
+        data = self._validate_and_fix_custom_field_values(data)
 
-        # self.logger.log(f'[{self.project["code"]}][Tests] Data after validation: {data}', 'info')
+        self.logger.log(f'[{self.project["code"]}][Tests] Data after validation: {data}', 'info')
         
         return data
 
@@ -412,49 +547,92 @@ class Cases:
         return data
 
     def _validate_and_fix_custom_field_values(self, data: dict) -> dict:
-        """Validate and fix any invalid custom field values before sending to Qase"""
-        try:
-            qase_custom_fields = self.qase.get_case_custom_fields()
-            if qase_custom_fields:
-                for qase_field in qase_custom_fields:
-                    field_id_str = str(qase_field.id)
-                    if field_id_str in data['custom_field']:
-                        current_value = data['custom_field'][field_id_str]
-                        
-                        # For dropdown/select fields, validate the value
-                        if qase_field.type.lower() in ['selectbox', 'radio', 'multiselect', 'checkbox']:
-                            if hasattr(qase_field, 'value') and qase_field.value:
-                                try:
-                                    valid_options = json.loads(qase_field.value)
-                                    valid_ids = [str(option['id']) for option in valid_options]
-                                    
-                                    # Check if current value is valid
-                                    if isinstance(current_value, str):
-                                        if current_value not in valid_ids:
-                                            # Use first valid option as fallback
-                                            if valid_ids:
-                                                data['custom_field'][field_id_str] = valid_ids[0]
-                                                self.logger.log(
-                                                    f'[{self.project["code"]}][Tests] Fixed invalid value for custom field {qase_field.title} (ID: {qase_field.id}): {current_value} -> {valid_ids[0]}', 'info')
-                                    elif isinstance(current_value, list):
-                                        # For multiselect fields
-                                        valid_values = [v for v in current_value if str(v) in valid_ids]
-                                        if not valid_values and valid_ids:
-                                            valid_values = [valid_ids[0]]
-                                            self.logger.log(
-                                                f'[{self.project["code"]}][Tests] Fixed invalid values for custom field {qase_field.title} (ID: {qase_field.id}): {current_value} -> {valid_values}', 'info')
-                                        data['custom_field'][field_id_str] = valid_values
-                                except Exception as e:
-                                    self.logger.log(
-                                        f'[{self.project["code"]}][Tests] Error validating custom field {qase_field.title}: {e}', 'warning')
-                        if qase_field.type.lower() == 'url':
-                            # Extract URL from markdown format [text](url) if present
-                            extracted_url = self._extract_url_from_markdown(current_value)
-                            if extracted_url:
-                                data['custom_field'][field_id_str] = extracted_url
-        except Exception as e:
-            self.logger.log(
-                f'[{self.project["code"]}][Tests] Error validating custom field values: {e}', 'warning')
+        """
+        Validate and fix custom field values before sending to Qase
+        """
+        if 'custom_field' not in data:
+            return data
+            
+        for field_id, value in data['custom_field'].items():
+            # Find the custom field definition
+            custom_field = None
+            for field_name, field_def in self.mappings.custom_fields.items():
+                if str(field_def.get('qase_id')) == str(field_id):
+                    custom_field = field_def
+                    break
+            
+            if not custom_field:
+                continue
+                
+            # For multiselect fields, ensure values are valid
+            if custom_field.get('type_id') == 12:  # multiselect
+                if isinstance(value, str) and ',' in value:
+                    # Split comma-separated values
+                    parts = [part.strip() for part in value.split(',')]
+                    valid_parts = []
+                    
+                    for part in parts:
+                        # Check if this value is valid for the field
+                        if 'project_values' in custom_field and self.project['testrail_id'] in custom_field['project_values']:
+                            project_values = custom_field['project_values'][self.project['testrail_id']]
+                            if part in project_values or part in [str(v) for v in project_values.values()]:
+                                valid_parts.append(part)
+                            else:
+                                # Try to find a similar value
+                                for key, val in project_values.items():
+                                    if part == str(key) or part == str(val):
+                                        valid_parts.append(str(key))
+                                        break
+                                else:
+                                    # Use first available value as fallback
+                                    first_key = list(project_values.keys())[0]
+                                    valid_parts.append(str(first_key))
+                                    self.logger.log(f'[{self.project["code"]}][Tests] Fixed invalid multiselect value {part} -> {first_key} for field {field_id}')
+                        else:
+                            # If no project values available, keep the original
+                            valid_parts.append(part)
+                    
+                    if valid_parts:
+                        data['custom_field'][field_id] = ','.join(valid_parts)
+                        self.logger.log(f'[{self.project["code"]}][Tests] Fixed multiselect field {field_id}: {value} -> {data["custom_field"][field_id]}')
+                    else:
+                        # Remove invalid field
+                        del data['custom_field'][field_id]
+                        self.logger.log(f'[{self.project["code"]}][Tests] Removed invalid multiselect field {field_id} with value {value}')
+                elif isinstance(value, str) and value.strip():
+                    # Single value for multiselect field
+                    if 'project_values' in custom_field and self.project['testrail_id'] in custom_field['project_values']:
+                        project_values = custom_field['project_values'][self.project['testrail_id']]
+                        if value not in project_values and value not in [str(v) for v in project_values.values()]:
+                            # Try to find a similar value
+                            for key, val in project_values.items():
+                                if value == str(key) or value == str(val):
+                                    data['custom_field'][field_id] = str(key)
+                                    self.logger.log(f'[{self.project["code"]}][Tests] Fixed single multiselect value {value} -> {key} for field {field_id}')
+                                    break
+                            else:
+                                # Use first available value as fallback
+                                first_key = list(project_values.keys())[0]
+                                data['custom_field'][field_id] = str(first_key)
+                                self.logger.log(f'[{self.project["code"]}][Tests] Fixed invalid single multiselect value {value} -> {first_key} for field {field_id}')
+            
+            # For dropdown fields (type_id = 6), also validate values
+            elif custom_field.get('type_id') == 6:  # dropdown
+                if isinstance(value, str) and value.strip():
+                    if 'project_values' in custom_field and self.project['testrail_id'] in custom_field['project_values']:
+                        project_values = custom_field['project_values'][self.project['testrail_id']]
+                        if value not in project_values and value not in [str(v) for v in project_values.values()]:
+                            # Try to find a similar value
+                            for key, val in project_values.items():
+                                if value == str(key) or value == str(val):
+                                    data['custom_field'][field_id] = str(key)
+                                    self.logger.log(f'[{self.project["code"]}][Tests] Fixed dropdown value {value} -> {key} for field {field_id}')
+                                    break
+                            else:
+                                # Use first available value as fallback
+                                first_key = list(project_values.keys())[0]
+                                data['custom_field'][field_id] = str(first_key)
+                                self.logger.log(f'[{self.project["code"]}][Tests] Fixed invalid dropdown value {value} -> {first_key} for field {field_id}')
         
         return data
 
