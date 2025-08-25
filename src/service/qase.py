@@ -609,26 +609,34 @@ class QaseService:
             self.logger.log(f'[Qase] Field {field["label"]} needs qase_values mapping update')
         
         # Check for missing project codes
-        if hasattr(existing_field, 'is_enabled_for_all_projects') and not existing_field.is_enabled_for_all_projects:
-            existing_projects = set()
-            if hasattr(existing_field, 'projects_codes') and existing_field.projects_codes:
-                existing_projects = set(existing_field.projects_codes)
-            
-            expected_projects = set()
-            
-            if field.get('configs') and len(field['configs']) > 0:
-                config = field['configs'][0]
-                if not config.get('context', {}).get('is_global', False):
-                    if config['context'].get('project_ids'):
-                        for project_id in config['context']['project_ids']:
-                            if project_id in mappings.project_map:
-                                expected_projects.add(mappings.project_map[project_id])
-            
+        # Always check projects, regardless of is_enabled_for_all_projects
+        existing_projects = set()
+        if hasattr(existing_field, 'projects_codes') and existing_field.projects_codes:
+            existing_projects = set(existing_field.projects_codes)
+        
+        expected_projects = set()
+        
+        if field.get('configs') and len(field['configs']) > 0:
+            config = field['configs'][0]
+            if not config.get('context', {}).get('is_global', False):
+                if config['context'].get('project_ids'):
+                    for project_id in config['context']['project_ids']:
+                        if project_id in mappings.project_map:
+                            expected_projects.add(mappings.project_map[project_id])
+        
+        # Always add current project if field should be project-specific
+        if expected_projects:
             missing_projects = expected_projects - existing_projects
             if missing_projects:
                 needs_update = True
                 update_data['missing_projects'] = list(missing_projects)
                 self.logger.log(f'[Qase] Field {field["label"]} missing projects: {missing_projects}')
+            
+            # Also check if field should be project-specific but is currently global
+            if getattr(existing_field, 'is_enabled_for_all_projects', False):
+                needs_update = True
+                update_data['should_be_project_specific'] = True
+                self.logger.log(f'[Qase] Field {field["label"]} should be project-specific but is currently global')
         
         return needs_update, update_data
 
@@ -719,6 +727,22 @@ class QaseService:
                 new_projects = existing_projects + update_data['missing_projects']
                 update_payload['projects_codes'] = new_projects
                 self.logger.log(f'[Qase] Adding projects {update_data["missing_projects"]} to field {field_id}')
+            
+            # Handle field that should be project-specific but is currently global
+            if 'should_be_project_specific' in update_data:
+                # Get expected projects from field config
+                expected_projects = []
+                if field.get('configs') and len(field['configs']) > 0:
+                    config = field['configs'][0]
+                    if config['context'].get('project_ids'):
+                        for project_id in config['context']['project_ids']:
+                            if project_id in mappings.project_map:
+                                expected_projects.append(mappings.project_map[project_id])
+                
+                if expected_projects:
+                    update_payload['is_enabled_for_all_projects'] = False
+                    update_payload['projects_codes'] = expected_projects
+                    self.logger.log(f'[Qase] Making field {field_id} project-specific for projects: {expected_projects}')
             
             # If no updates needed, return success
             if not update_payload:
