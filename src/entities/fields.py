@@ -132,6 +132,9 @@ class Fields:
         return fields_to_import
 
     async def _create_custom_field(self, field, qase_fields):
+        self.logger.log(f'[Fields] Processing field: {field["label"]} (type_id: {field["type_id"]})')
+        self.logger.log(f'[Fields] Field configs: {len(field.get("configs", []))} configurations')
+        
         # Check if field already exists
         if qase_fields and len(qase_fields) > 0:
             for qase_field in qase_fields:
@@ -180,12 +183,79 @@ class Fields:
                             for value in values:
                                 field['qase_values'][value['id']] = value['title']
                         
+                        # Create tr_key_to_qase_id_by_project structure for existing fields
+                        if 'tr_key_to_qase_id_by_project' not in field:
+                            field['tr_key_to_qase_id_by_project'] = {}
+                        
+                        # Process field configurations to create project-specific mappings
+                        if len(field['configs']) > 0:
+                            self.logger.log(f'[Fields] Creating tr_key_to_qase_id_by_project for existing field {field["label"]}')
+                            
+                            # Initialize project values
+                            if 'project_values' not in field:
+                                field['project_values'] = {}
+                            
+                            # Collect all values across all projects
+                            all_project_values = {}
+                            next_global_id = 1
+                            
+                            for i, config in enumerate(field['configs']):
+                                if 'options' in config and 'items' in config['options'] and len(config['options']['items']) > 0:
+                                    values = self.qase.__split_values(config['options']['items'])
+                                    project_ids = config['context']['project_ids'] if 'context' in config and 'project_ids' in config['context'] else []
+                                    
+                                    self.logger.log(f'[Fields] Config {i+1} for projects {project_ids}: {len(values)} values')
+                                    self.logger.log(f'[Fields] Values from config {i+1}: {values}')
+                                    
+                                    # Process each project separately
+                                    for project_id in project_ids:
+                                        if project_id not in field['project_values']:
+                                            field['project_values'][project_id] = {}
+                                        
+                                        if project_id not in field['tr_key_to_qase_id_by_project']:
+                                            field['tr_key_to_qase_id_by_project'][project_id] = {}
+                                        
+                                        # Store values for this specific project
+                                        field['project_values'][project_id] = values.copy()
+                                        
+                                        # Create project-specific TestRail to Qase mapping
+                                        for tr_key, value in values.items():
+                                            # Check if this value already exists globally
+                                            if value not in all_project_values:
+                                                all_project_values[value] = next_global_id
+                                                next_global_id += 1
+                                                self.logger.log(f'[Fields] Added new global value: {value} -> ID {all_project_values[value]}')
+                                            
+                                            # Map TestRail key to Qase ID for this project
+                                            qase_id = all_project_values[value]
+                                            field['tr_key_to_qase_id_by_project'][project_id][tr_key] = qase_id
+                                            self.logger.log(f'[Fields] Created project {project_id} mapping: TestRail key {tr_key} -> Qase ID {qase_id} (value: {value})')
+                            
+                            # Update qase_values if needed
+                            if not field['qase_values']:
+                                field['qase_values'] = all_project_values
+                            
+                            self.logger.log(f'[Fields] Total unique values for field {field["label"]}: {len(all_project_values)}')
+                            self.logger.log(f'[Fields] All collected values: {all_project_values}')
+                            
+                            # Log project-specific mappings for debugging
+                            for project_id, mappings in field['tr_key_to_qase_id_by_project'].items():
+                                self.logger.log(f'[Fields] Project {project_id} mappings: {mappings}')
+                        
                         # If field has project-specific values, store them
                         if 'project_values' in field:
                             self.logger.log(f'[Fields] Field {field["label"]} has project-specific values: {field["project_values"]}')
                     
                     field['qase_id'] = qase_field.id
                     self.mappings.custom_fields[field['name']] = field
+                    
+                    # Log final field structure for debugging
+                    self.logger.log(f'[Fields] Final field structure for {field["label"]}:')
+                    self.logger.log(f'[Fields]   qase_id: {field.get("qase_id")}')
+                    self.logger.log(f'[Fields]   qase_values: {field.get("qase_values", {})}')
+                    self.logger.log(f'[Fields]   project_values: {field.get("project_values", {})}')
+                    self.logger.log(f'[Fields]   tr_key_to_qase_id_by_project: {field.get("tr_key_to_qase_id_by_project", {})}')
+                    
                     return
 
         # Create new field if it doesn't exist
@@ -196,6 +266,13 @@ class Fields:
             field['qase_id'] = qase_id
             self.mappings.custom_fields[field['name']] = field
             self.mappings.stats.add_custom_field('qase')
+            
+            # Log final field structure for debugging
+            self.logger.log(f'[Fields] Final field structure for new field {field["label"]}:')
+            self.logger.log(f'[Fields]   qase_id: {field.get("qase_id")}')
+            self.logger.log(f'[Fields]   qase_values: {field.get("qase_values", {})}')
+            self.logger.log(f'[Fields]   project_values: {field.get("project_values", {})}')
+            self.logger.log(f'[Fields]   tr_key_to_qase_id_by_project: {field.get("tr_key_to_qase_id_by_project", {})}')
 
     async def _create_refs_field(self, qase_custom_fields):
         if self.config.get('tests.refs.enable'):
