@@ -130,28 +130,322 @@ class Fields:
         return fields_to_import
 
     async def _create_custom_field(self, field, qase_fields):
-        # Skip if field already exists
+        # Check if field has configurations
+        if not field.get('configs') or len(field['configs']) == 0:
+            self.logger.log(f'[Fields] Skipping field {field["name"]} - no configurations found')
+            return
+
+        self.logger.log(f'[Fields] Processing field {field["name"]} with {len(field["configs"])} configurations')
+
+        # If field has only one configuration and is global, create a single field
+        if len(field['configs']) == 1 and field['configs'][0]['context'].get('is_global', False):
+            self.logger.log(f'[Fields] Creating global field for {field["name"]}')
+            await self._create_single_global_field(field, qase_fields)
+            return
+
+        # If field has multiple configurations, create unique fields for each project
+        if len(field['configs']) > 1:
+            self.logger.log(f'[Fields] Creating project-specific fields for {field["name"]} with {len(field["configs"])} configurations')
+            await self._create_project_specific_fields(field, qase_fields)
+            return
+
+        # If field has one configuration but is not global, create field for specific projects
+        if len(field['configs']) == 1 and not field['configs'][0]['context'].get('is_global', False):
+            project_ids = field['configs'][0]['context'].get('project_ids', [])
+            self.logger.log(f'[Fields] Creating single project field for {field["name"]} for projects: {project_ids}')
+            await self._create_single_project_field(field, qase_fields)
+            return
+
+    async def _create_single_global_field(self, field, qase_fields):
+        """Create a single field that is enabled for all projects"""
+        # Check if field already exists
         if qase_fields and len(qase_fields) > 0:
             for qase_field in qase_fields:
-                if qase_field.title == field['label'] and self.mappings.custom_fields_type[field['type_id']] == self.mappings.qase_fields_type[qase_field.type.lower()]:
-                    self.logger.log(
-                        '[Fields] Custom field already exists: ' + field['label'])
+                if (qase_field.title == field['label'] and 
+                    self.mappings.custom_fields_type[field['type_id']] == self.mappings.qase_fields_type[qase_field.type.lower()]):
+
+                    self.logger.log(f'[Fields] Global custom field already exists: {field["label"]}')
+                    
+                    # Check if field needs to be updated
+                    needs_update, update_data = self.qase.check_field_update_needed(field, qase_field, self.mappings)
+
+                    
+                    if needs_update:
+                        self.logger.log(f'[Fields] Global field {field["label"]} needs update: {update_data}')
+
+                        
+                        # Update the field
+                        update_success = await self.pools.qs(self.qase.update_custom_field, qase_field.id, update_data)
+
+                        
+                        if update_success:
+                            self.logger.log(f'[Fields] Successfully updated global field {field["label"]}')
+                            
+                            # Refresh field data after update
+                            if 'missing_values' in update_data or 'needs_mapping_update' in update_data:
+                                # Get updated field to refresh values
+                                updated_field = await self.pools.qs(self.qase.get_custom_field, qase_field.id)
+
+                                
+                                if updated_field and hasattr(updated_field, 'value') and updated_field.value:
+
+                                    try:
+                                        values_data = json.loads(updated_field.value) if isinstance(updated_field.value, str) else updated_field.value
+
+                                        field['qase_values'] = {}
+                                        for value in values_data:
+                                            if hasattr(value, 'id') and hasattr(value, 'title'):
+                                                field['qase_values'][value.id] = value.title
+                                            elif isinstance(value, dict) and 'id' in value and 'title' in value:
+
+                                                field['qase_values'][value['id']] = value['title']
+                                        
+                                        # Also create TestRail ID to Qase ID mapping
+                                        if 'configs' in field and len(field['configs']) > 0:
+                                            config = field['configs'][0]
+                                            if 'options' in config and 'items' in config['options']:
+                                                items = config['options']['items']
+                                                if items:
+                                                    # Parse items string into TestRail ID mapping
+                                                    tr_values = {}
+                                                    for line in items.split('\n'):
+                                                        if ',' in line:
+                                                            key, title = line.split(',', 1)
+                                                            tr_values[key.strip()] = title.strip()
+                                                    
+                                                    # Create TestRail ID to Qase ID mapping
+                                                    field['tr_key_to_qase_id'] = {}
+                                                    for tr_key, tr_title in tr_values.items():
+                                                        for qase_id, qase_title in field['qase_values'].items():
+
+                                                            if tr_title.strip() == qase_title.strip():
+                                                                field['tr_key_to_qase_id'][tr_key] = qase_id
+
+                                                                break
+                                                    
+                                                    self.logger.log(f'[Fields] Created TestRail to Qase mapping for field {field["label"]}: {field["tr_key_to_qase_id"]}')
+
+                                        
+                                    except (json.JSONDecodeError, AttributeError) as e:
+                                        self.logger.log(f'[Fields] Error updating field mapping: {e}', 'warning')
+
+                        else:
+                            self.logger.log(f'[Fields] Failed to update global field {field["label"]}', 'warning')
+
+                    
+                    # Set up field data for later use
                     if qase_field.type.lower() in ("selectbox", "multiselect", "radio"):
-                        field['qase_values'] = {}
-                        values = json.loads(qase_field.value)
-                        for value in values:
-                            field['qase_values'][value['id']] = value['title']
+                        if 'qase_values' not in field:
+                            field['qase_values'] = {}
+                            values = json.loads(qase_field.value)
+                            for value in values:
+                                field['qase_values'][value['id']] = value['title']
                     field['qase_id'] = qase_field.id
                     self.mappings.custom_fields[field['name']] = field
                     return
 
+        # Create new global field
         data = self.qase.prepare_custom_field_data(field, self.mappings)
         qase_id = await self.pools.qs(self.qase.create_custom_field, data)
         if qase_id > 0:
-            self.logger.log('[Fields] Custom field created: ' + field['label'])
+            self.logger.log(f'[Fields] Global custom field created: {field["label"]}')
             field['qase_id'] = qase_id
             self.mappings.custom_fields[field['name']] = field
             self.mappings.stats.add_custom_field('qase')
+        else:
+            self.logger.log(f'[Fields] Failed to create global custom field: {field["label"]}', 'error')
+
+    async def _create_single_project_field(self, field, qase_fields):
+        """Create a single field for specific projects"""
+        config = field['configs'][0]
+        project_ids = config['context'].get('project_ids', [])
+        
+        # Check if field already exists
+        if qase_fields and len(qase_fields) > 0:
+            for qase_field in qase_fields:
+                if (qase_field.title == field['label'] and 
+                    self.mappings.custom_fields_type[field['type_id']] == self.mappings.qase_fields_type[qase_field.type.lower()]):
+
+                    self.logger.log(f'[Fields] Project-specific custom field already exists: {field["label"]}')
+
+                    # Check if field needs to be updated
+                    needs_update, update_data = self.qase.check_field_update_needed(field, qase_field, self.mappings)
+
+                    
+                    if needs_update:
+                        self.logger.log(f'[Fields] Project field {field["label"]} needs update: {update_data}')
+
+                        
+                        # Update the field
+                        update_success = await self.pools.qs(self.qase.update_custom_field, qase_field.id, update_data)
+
+                        
+                        if update_success:
+                            self.logger.log(f'[Fields] Successfully updated project field {field["label"]}')
+
+                            
+                            # Refresh field data after update
+                            if 'missing_values' in update_data:
+                                # Get updated field to refresh values
+                                updated_field = await self.pools.qs(self.qase.get_custom_field, qase_field.id)
+
+                                
+                                if updated_field and hasattr(updated_field, 'value') and updated_field.value:
+
+                                    try:
+                                        values_data = json.loads(updated_field.value) if isinstance(updated_field.value, str) else updated_field.value
+
+                                        field['qase_values'] = {}
+                                        for value in values_data:
+                                            if hasattr(value, 'id') and hasattr(value, 'title'):
+                                                field['qase_values'][value.id] = value.title
+                                            elif isinstance(value, dict) and 'id' in value and 'title' in value:
+
+                                                field['qase_values'][value['id']] = value['title']
+                                    except (json.JSONDecodeError, AttributeError):
+                                        pass
+                        else:
+                            self.logger.log(f'[Fields] Failed to update project field {field["label"]}', 'warning')
+
+                    else:
+                        self.logger.log(f'[Fields] Project field {field["label"]} is up to date')
+                    
+                    # Set up field data for later use
+                    if qase_field.type.lower() in ("selectbox", "multiselect", "radio"):
+                        if 'qase_values' not in field:
+                            field['qase_values'] = {}
+                            values = json.loads(qase_field.value)
+                            for value in values:
+                                field['qase_values'][value['id']] = value['title']
+                    field['qase_id'] = qase_field.id
+                    self.mappings.custom_fields[field['name']] = field
+                    return
+
+        # Create new project-specific field
+        data = self.qase.prepare_custom_field_data(field, self.mappings)
+        qase_id = await self.pools.qs(self.qase.create_custom_field, data)
+        if qase_id > 0:
+            self.logger.log(f'[Fields] Project-specific custom field created: {field["label"]}')
+            field['qase_id'] = qase_id
+            self.mappings.custom_fields[field['name']] = field
+            self.mappings.stats.add_custom_field('qase')
+        else:
+            self.logger.log(f'[Fields] Failed to create project-specific custom field: {field["label"]}', 'error')
+
+    async def _create_project_specific_fields(self, field, qase_fields):
+        """Create unique fields for each project when field has multiple configurations"""
+        # Process each project configuration separately
+        for config in field['configs']:
+            if not config.get('context', {}).get('project_ids'):
+                self.logger.log(f'[Fields] Skipping config for field {field["name"]} - no project_ids found')
+                continue
+                
+            project_ids = config['context']['project_ids']
+            self.logger.log(f'[Fields] Processing config for field {field["name"]} with project_ids: {project_ids}')
+                
+            for project_id in project_ids:
+                if project_id not in self.mappings.project_map:
+                    self.logger.log(f'[Fields] Skipping project {project_id} for field {field["name"]} - project not in mappings')
+                    continue
+                    
+                project_code = self.mappings.project_map[project_id]
+                field_name_with_project = f"{field['name']}_{project_code}"
+                
+                self.logger.log(f'[Fields] Creating field {field_name_with_project} for project {project_code}')
+
+                # Check if field already exists for this project
+                field_exists = False
+                if qase_fields and len(qase_fields) > 0:
+                    for qase_field in qase_fields:
+                        if (qase_field.title == field_name_with_project and 
+                            self.mappings.custom_fields_type[field['type_id']] == self.mappings.qase_fields_type[qase_field.type.lower()]):
+
+                            self.logger.log(f'[Fields] Custom field already exists for project {project_code}: {field_name_with_project}')
+
+                            # Check if field needs to be updated
+                            needs_update, update_data = self.qase.check_field_update_needed(field_copy, qase_field, self.mappings)
+
+                            
+                            if needs_update:
+                                self.logger.log(f'[Fields] Project field {field_name_with_project} needs update: {update_data}')
+
+                                
+                                # Update the field
+                                update_success = await self.pools.qs(self.qase.update_custom_field, qase_field.id, update_data)
+
+                                
+                                if update_success:
+                                    self.logger.log(f'[Fields] Successfully updated project field {field_name_with_project}')
+
+                                    
+                                    # Refresh field data after update
+                                    if 'missing_values' in update_data:
+                                        # Get updated field to refresh values
+                                        updated_field = await self.pools.qs(self.qase.get_custom_field, qase_field.id)
+
+                                        
+                                        if updated_field and hasattr(updated_field, 'value') and updated_field.value:
+
+                                            try:
+                                                values_data = json.loads(updated_field.value) if isinstance(updated_field.value, str) else updated_field.value
+
+                                                field_copy['qase_values'] = {}
+                                                for value in values_data:
+                                                    if hasattr(value, 'id') and hasattr(value, 'title'):
+                                                        field_copy['qase_values'][value.id] = value.title
+                                                    elif isinstance(value, dict) and 'id' in value and 'title' in value:
+
+                                                        field_copy['qase_values'][value['id']] = value['title']
+                                            except (json.JSONDecodeError, AttributeError):
+                                                pass
+                                else:
+                                    self.logger.log(f'[Fields] Failed to update project field {field_name_with_project}', 'warning')
+
+                            else:
+                                self.logger.log(f'[Fields] Project field {field_name_with_project} is up to date')
+
+                            
+                            # Set up field data for later use
+                            if qase_field.type.lower() in ("selectbox", "multiselect", "radio"):
+                                if 'qase_values' not in field_copy:
+                                    field_copy['qase_values'] = {}
+                                    values = json.loads(qase_field.value)
+                                    for value in values:
+                                        field_copy['qase_values'][value['id']] = value['title']
+                            field_copy['qase_id'] = qase_field.id
+                            # Store field mapping with project-specific key
+                            self.mappings.custom_fields[f"{field['name']}_{project_code}"] = field_copy
+                            field_exists = True
+                            break
+                
+                if field_exists:
+                    continue
+                
+                # Create new field for this project
+                field_copy = field.copy()
+                field_copy['label'] = field_name_with_project
+                field_copy['configs'] = [config]  # Use only this project's config
+                
+                # Store project information for validation
+                field_copy['project_id'] = project_id
+                field_copy['project_code'] = project_code
+                
+                # Create project-specific field data
+                data = self.qase.prepare_custom_field_data(field_copy, self.mappings)
+                
+                # Ensure field is only enabled for this specific project
+                data['is_enabled_for_all_projects'] = False
+                data['projects_codes'] = [project_code]
+                
+                qase_id = await self.pools.qs(self.qase.create_custom_field, data)
+                if qase_id > 0:
+                    self.logger.log(f'[Fields] Custom field created for project {project_code}: {field_name_with_project}')
+                    field_copy['qase_id'] = qase_id
+                    # Store field mapping with project-specific key
+                    self.mappings.custom_fields[f"{field['name']}_{project_code}"] = field_copy
+                    self.mappings.stats.add_custom_field('qase')
+                else:
+                    self.logger.log(f'[Fields] Failed to create custom field for project {project_code}: {field_name_with_project}', 'error')
 
     async def _create_refs_field(self, qase_custom_fields):
         if self.config.get('tests.refs.enable'):

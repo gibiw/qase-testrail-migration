@@ -185,56 +185,159 @@ class Cases:
     # Done
     def _import_custom_fields_for_case(self, case: dict, data: dict) -> dict:
         for field_name in case:
-            if field_name.startswith('custom_') and field_name[len('custom_'):] in self.mappings.custom_fields and case[field_name]:
-                name = field_name[len('custom_'):]
-                custom_field = self.mappings.custom_fields[name]
-                # Importing step
+            if field_name.startswith('custom_'):
+                normalized_name = self.__normalize_custom_field_name(field_name[len('custom_'):])
+                
+                # Look for project-specific field first
+                project_specific_key = f"{normalized_name}_{self.project['code']}"
+                if project_specific_key in self.mappings.custom_fields and case[field_name]:
+                    custom_field = self.mappings.custom_fields[project_specific_key]
+                    self.logger.log(f'[{self.project["code"]}][Tests] Using project-specific field {project_specific_key} for case {case["title"]} with value: {case[field_name]}')
 
-                if custom_field['type_id'] in (6, 12):
-                    # Importing dropdown and multiselect values
-                    value = self._validate_custom_field_values(
-                        custom_field, case[field_name])
-                    if value:
-                        if type(value) == str or type(value) == int:
-                            result_value = str(int(value)+1)
-                            data['custom_field'][str(custom_field['qase_id'])] = result_value
-                            self.logger.log(
-                                f'[{self.project["code"]}][Tests] Custom field {name} (ID: {custom_field["qase_id"]}): value={value} -> result={result_value}', 'info')
-                        if type(value) == list:
-                            result_value = ','.join(str(int(v)+1) for v in value)
-                            data['custom_field'][str(custom_field['qase_id'])] = result_value
-                            self.logger.log(
-                                f'[{self.project["code"]}][Tests] Custom field {name} (ID: {custom_field["qase_id"]}): value={value} -> result={result_value}', 'info')
+                    # Importing step
+
+                    if custom_field['type_id'] in (6, 12):
+                        # Importing dropdown and multiselect values
+                        value = self._validate_custom_field_values(custom_field, case[field_name])
+                        if value:
+                            if type(value) == str or type(value) == int:
+                                data['custom_field'][str(custom_field['qase_id'])] = str(int(value) + 1)
+                                self.logger.log(f'[{self.project["code"]}][Tests] Set field {custom_field["name"]} to value: {str(int(value) + 1)}')
+
+                            elif type(value) == list:
+                                # Multiple values - handle based on field type
+                                if custom_field['type_id'] == 12:  # multiselect
+                                    # For multiselect, pass comma-separated string
+                                    if not custom_field.get('project_id'):
+                                        # For global fields, use validated values directly
+                                        validated_values = self._validate_custom_field_values(custom_field, value)
+
+                                        if validated_values:
+                                            # Convert validated TestRail values to Qase IDs
+                                            qase_values = []
+                                            for v in validated_values:
+                                                # Find the corresponding Qase ID for this TestRail value
+                                                testrail_key = str(v)
+                                                if custom_field.get('tr_key_to_qase_id') and testrail_key in custom_field['tr_key_to_qase_id']:
+                                                    qase_id = custom_field['tr_key_to_qase_id'][testrail_key]
+                                                    qase_values.append(str(qase_id))
+                                                elif custom_field.get('qase_values') and testrail_key in custom_field['qase_values']:
+                                                    # Fallback to old logic if tr_key_to_qase_id not available
+                                                    qase_id = custom_field['qase_values'][testrail_key]
+                                                    qase_values.append(str(qase_id))
+                                                else:
+                                                    self.logger.log(f'[{self.project["code"]}][Tests] Warning: TestRail value {v} not found in mapping for field {custom_field["name"]}', 'warning')
+                                            
+                                            if qase_values:
+                                                data['custom_field'][str(custom_field['qase_id'])] = ','.join(qase_values)
+                                                self.logger.log(f'[{self.project["code"]}][Tests] Set global multiselect field {custom_field["name"]} to values: {",".join(qase_values)}')
+                                            else:
+                                                self.logger.log(f'[{self.project["code"]}][Tests] No valid Qase IDs found for field {custom_field["name"]}', 'warning')
+                                        else:
+                                            self.logger.log(f'[{self.project["code"]}][Tests] Global field {custom_field["name"]} validation failed for value: {value}')
+                                    else:
+                                        # For project-specific fields, use the old logic
+                                        qase_values = [str(int(v) + 1) for v in value]
+                                        data['custom_field'][str(custom_field['qase_id'])] = ','.join(qase_values)
+                                        self.logger.log(f'[{self.project["code"]}][Tests] Set project-specific multiselect field {custom_field["name"]} to values: {",".join(qase_values)}')
+                                else:  # single select (type_id = 6)
+                                    # For single select, take first value only
+                                    data['custom_field'][str(custom_field['qase_id'])] = str(int(value[0]) + 1)
+                                    self.logger.log(f'[{self.project["code"]}][Tests] Set single select field {custom_field["name"]} to value: {str(int(value[0]) + 1)}')
+
+                        else:
+                            self.logger.log(f'[{self.project["code"]}][Tests] Field {custom_field["name"]} validation failed for value: {case[field_name]}')
+
                     else:
-                        # Log when validation returns None for debugging
-                        self.logger.log(
-                            f'[{self.project["code"]}][Tests] Custom field {name} validation returned None for value: {case[field_name]}', 'warning')
-                        # Log available options for debugging
-                        if len(custom_field['configs']) > 0 and 'options' in custom_field['configs'][0]:
-                            values = self.__split_values(custom_field['configs'][0]['options']['items'])
-                            self.logger.log(
-                                f'[{self.project["code"]}][Tests] Available options for {name}: {values}', 'info')
-                else:
-                    # Check if this is a URL field and handle accordingly
-                    field_value = str(
-                        self.attachments.check_and_replace_attachments(
-                            case[field_name], self.project['code'])
-                    )
-                    
-                    # Check if this custom field is a URL type in Qase
-                    if self._is_url_field(custom_field['qase_id']):
-                        # For URL fields, extract plain URL from markdown if needed
-                        plain_url = self._extract_url_from_markdown(field_value)
-                        data['custom_field'][str(custom_field['qase_id'])] = plain_url
-                        self.logger.log(
-                            f'[{self.project["code"]}][Tests] Custom field {name} (ID: {custom_field["qase_id"]}) - URL type: original={case[field_name]} -> processed={field_value} -> result={plain_url}', 'info')
-                    else:
-                        # For non-URL fields, apply markdown formatting
-                        formatted_value = self.__format_links_as_markdown(field_value)
-                        data['custom_field'][str(custom_field['qase_id'])] = formatted_value
-                        self.logger.log(
-                            f'[{self.project["code"]}][Tests] Custom field {name} (ID: {custom_field["qase_id"]}) - {custom_field["type_id"]} type: original={case[field_name]} -> processed={field_value} -> result={formatted_value}', 'info')
+                        # Check if this is a URL field and handle accordingly
+                        field_value = str(
+                            self.attachments.check_and_replace_attachments(
+                                case[field_name], self.project['code'])
+                        )
                         
+                        # Check if this custom field is a URL type in Qase
+                        if self._is_url_field(custom_field['qase_id']):
+                            # For URL fields, extract plain URL from markdown if needed
+                            plain_url = self._extract_url_from_markdown(field_value)
+                            data['custom_field'][str(custom_field['qase_id'])] = plain_url
+                            self.logger.log(
+                                f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} (ID: {custom_field["qase_id"]}) - URL type: original={case[field_name]} -> processed={field_value} -> result={plain_url}', 'info')
+                        else:
+                            # For non-URL fields, apply markdown formatting
+                            formatted_value = self.__format_links_as_markdown(field_value)
+                            data['custom_field'][str(custom_field['qase_id'])] = formatted_value
+                            self.logger.log(
+                                f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} (ID: {custom_field["qase_id"]}) - {custom_field["type_id"]} type: original={case[field_name]} -> processed={field_value} -> result={formatted_value}', 'info')
+
+                            
+                # Fallback to original field name for backward compatibility
+                elif normalized_name in self.mappings.custom_fields and case[field_name]:
+                    custom_field = self.mappings.custom_fields[normalized_name]
+                    self.logger.log(f'[{self.project["code"]}][Tests] Using global field {normalized_name} for case {case["title"]} with value: {case[field_name]}')
+
+                    # Importing step
+
+                    if custom_field['type_id'] in (6, 12):
+                        # Importing dropdown and multiselect values
+                        value = self._validate_custom_field_values(custom_field, case[field_name])
+                        if value:
+                            if type(value) == str or type(value) == int:
+                                data['custom_field'][str(custom_field['qase_id'])] = str(int(value) + 1)
+                                self.logger.log(f'[{self.project["code"]}][Tests] Set global field {custom_field["name"]} to value: {str(int(value) + 1)}')
+
+                            elif type(value) == list:
+                                # Multiple values - handle based on field type
+                                if custom_field['type_id'] == 12:  # multiselect
+                                    # For multiselect, pass comma-separated string
+                                    if not custom_field.get('project_id'):
+                                        # For global fields, use validated values directly
+                                        validated_values = self._validate_custom_field_values(custom_field, value)
+
+                                        if validated_values:
+                                            # Convert validated TestRail values to Qase IDs
+                                            qase_values = []
+                                            for v in validated_values:
+                                                # Find the corresponding Qase ID for this TestRail value
+                                                testrail_key = str(v)
+                                                if custom_field.get('tr_key_to_qase_id') and testrail_key in custom_field['tr_key_to_qase_id']:
+                                                    qase_id = custom_field['tr_key_to_qase_id'][testrail_key]
+                                                    qase_values.append(str(qase_id))
+                                                elif custom_field.get('qase_values') and testrail_key in custom_field['qase_values']:
+                                                    # Fallback to old logic if tr_key_to_qase_id not available
+                                                    qase_id = custom_field['qase_values'][testrail_key]
+                                                    qase_values.append(str(qase_id))
+                                                else:
+                                                    self.logger.log(f'[{self.project["code"]}][Tests] Warning: TestRail value {v} not found in mapping for field {custom_field["name"]}', 'warning')
+                                            
+                                            if qase_values:
+                                                data['custom_field'][str(custom_field['qase_id'])] = ','.join(qase_values)
+                                                self.logger.log(f'[{self.project["code"]}][Tests] Set global multiselect field {custom_field["name"]} to values: {",".join(qase_values)}')
+                                            else:
+                                                self.logger.log(f'[{self.project["code"]}][Tests] No valid Qase IDs found for field {custom_field["name"]}', 'warning')
+                                        else:
+                                            self.logger.log(f'[{self.project["code"]}][Tests] Global field {custom_field["name"]} validation failed for value: {value}')
+                                    else:
+                                        # For project-specific fields, use the old logic
+                                        qase_values = [str(int(v) + 1) for v in value]
+                                        data['custom_field'][str(custom_field['qase_id'])] = ','.join(qase_values)
+                                        self.logger.log(f'[{self.project["code"]}][Tests] Set project-specific multiselect field {custom_field["name"]} to values: {",".join(qase_values)}')
+                                else:  # single select (type_id = 6)
+                                    # For single select, take first value only
+                                    data['custom_field'][str(custom_field['qase_id'])] = str(int(value[0]) + 1)
+                                    self.logger.log(f'[{self.project["code"]}][Tests] Set single select field {custom_field["name"]} to value: {str(int(value[0]) + 1)}')
+
+                        else:
+                            self.logger.log(f'[{self.project["code"]}][Tests] Global field {custom_field["name"]} validation failed for value: {value}')
+                            return None
+                    else:
+                        # Handle non-dropdown fields (text, number, etc.)
+                        data['custom_field'][str(custom_field['qase_id'])] = self.__format_links_as_markdown(str(
+                            self.attachments.check_and_replace_attachments(case[field_name], self.project['code'])))
+                        self.logger.log(f'[{self.project["code"]}][Tests] Set global field {custom_field["name"]} to text value')
+
+                else:
+                    self.logger.log(f'[{self.project["code"]}][Tests] No field found for {normalized_name} or {project_specific_key}')
+
             if field_name[len('custom_'):] in self.mappings.step_fields and case[field_name]:
                 steps = []
                 i = 1
@@ -271,8 +374,9 @@ class Cases:
         # Handle required custom fields that don't exist in TestRail data
         data = self._handle_required_custom_fields(data)
         
-        # Validate and fix any invalid custom field values
-        data = self._validate_and_fix_custom_field_values(data)
+        # Note: Removed _validate_and_fix_custom_field_values call as it duplicates
+        # the validation logic already implemented in _validate_custom_field_values
+        # during field processing. The new approach is more efficient and accurate.
         
         return data
 
@@ -339,52 +443,7 @@ class Cases:
         
         return data
 
-    def _validate_and_fix_custom_field_values(self, data: dict) -> dict:
-        """Validate and fix any invalid custom field values before sending to Qase"""
-        try:
-            qase_custom_fields = self.qase.get_case_custom_fields()
-            if qase_custom_fields:
-                for qase_field in qase_custom_fields:
-                    field_id_str = str(qase_field.id)
-                    if field_id_str in data['custom_field']:
-                        current_value = data['custom_field'][field_id_str]
-                        
-                        # For dropdown/select fields, validate the value
-                        if qase_field.type.lower() in ['selectbox', 'radio', 'multiselect', 'checkbox']:
-                            if hasattr(qase_field, 'value') and qase_field.value:
-                                try:
-                                    valid_options = json.loads(qase_field.value)
-                                    valid_ids = [str(option['id']) for option in valid_options]
-                                    
-                                    # Check if current value is valid
-                                    if isinstance(current_value, str):
-                                        if current_value not in valid_ids:
-                                            # Use first valid option as fallback
-                                            if valid_ids:
-                                                data['custom_field'][field_id_str] = valid_ids[0]
-                                                self.logger.log(
-                                                    f'[{self.project["code"]}][Tests] Fixed invalid value for custom field {qase_field.title} (ID: {qase_field.id}): {current_value} -> {valid_ids[0]}', 'info')
-                                    elif isinstance(current_value, list):
-                                        # For multiselect fields
-                                        valid_values = [v for v in current_value if str(v) in valid_ids]
-                                        if not valid_values and valid_ids:
-                                            valid_values = [valid_ids[0]]
-                                            self.logger.log(
-                                                f'[{self.project["code"]}][Tests] Fixed invalid values for custom field {qase_field.title} (ID: {qase_field.id}): {current_value} -> {valid_values}', 'info')
-                                        data['custom_field'][field_id_str] = valid_values
-                                except Exception as e:
-                                    self.logger.log(
-                                        f'[{self.project["code"]}][Tests] Error validating custom field {qase_field.title}: {e}', 'warning')
-                        if qase_field.type.lower() == 'url':
-                            # Extract URL from markdown format [text](url) if present
-                            extracted_url = self._extract_url_from_markdown(current_value)
-                            if extracted_url:
-                                data['custom_field'][field_id_str] = extracted_url
-        except Exception as e:
-            self.logger.log(
-                f'[{self.project["code"]}][Tests] Error validating custom field values: {e}', 'warning')
-        
-        return data
+
 
     def _get_default_value_for_field(self, qase_field) -> str:
         """Get appropriate default value for a required custom field based on its type"""
@@ -428,96 +487,87 @@ class Cases:
 
     # Done. Method validates if custom field value exists (skip)
     def _validate_custom_field_values(self, custom_field: dict, value: Union[str, List]) -> Optional[Union[str, list]]:
-        if len(custom_field['configs']) > 0 and 'options' in custom_field['configs'][0] and 'items' in custom_field['configs'][0]['options'] and len(custom_field['configs'][0]['options']['items']) > 0:
-            values = self.__split_values(
-                custom_field['configs'][0]['options']['items'])
+        """Validate custom field values against field configuration"""
+        if not value:
+            return None
+
+        # For project-specific fields, use the field's own config
+        if custom_field.get('project_id') and custom_field.get('project_code'):
+            configs = custom_field['configs']
+            self.logger.log(f'[{self.project["code"]}][Tests] Using project-specific config for field {custom_field["name"]}')
+
+        else:
+            # For global fields, find config for current project
+            configs = custom_field['configs']
+            project_id = self.project['testrail_id']
+            matching_config = None
             
-            # Create reverse mapping for better value matching
-            value_to_key = {v.strip(): k for k, v in values.items()}
+            for config in configs:
+                if config['context'].get('project_ids') and project_id in config['context']['project_ids']:
+                    matching_config = config
+                    break
             
-            if type(value) == str or type(value) == int:
-                str_value = str(value).strip()
-                
-                # First try exact key match
-                if str_value in values.keys():
-                    return value
-                
-                # Then try value match (case-insensitive)
-                if str_value.lower() in [v.lower() for v in values.values()]:
-                    for k, v in values.items():
-                        if v.lower() == str_value.lower():
-                            return k
-                
-                # For multi-select fields, try to split and match individual values
-                if ',' in str_value:
-                    parts = [part.strip() for part in str_value.split(',')]
-                    matched_parts = []
-                    for part in parts:
-                        if part in values.keys():
-                            matched_parts.append(part)
-                        elif part.lower() in [v.lower() for v in values.values()]:
-                            for k, v in values.items():
-                                if v.lower() == part.lower():
-                                    matched_parts.append(k)
-                                    break
-                        else:
-                            self.logger.log(
-                                f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has unmatched value "{part}" in "{str_value}"', 'warning')
-                    
-                    if matched_parts:
-                        return matched_parts
-                
-                # Log the issue but don't use fallback - preserve original value
-                self.logger.log(
-                    f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has unmatched value "{str_value}", preserving original', 'warning')
-                return value
-                
-            elif type(value) == list:
-                filtered_values = []
-                for item in value:
-                    str_item = str(item).strip()
-                    
-                    # Try exact key match
-                    if str_item in values.keys():
-                        filtered_values.append(item)
-                        continue
-                    
-                    # Try value match (case-insensitive)
-                    if str_item.lower() in [v.lower() for v in values.values()]:
-                        for k, v in values.items():
-                            if v.lower() == str_item.lower():
-                                filtered_values.append(k)
-                                break
-                        continue
-                    
-                    # For multi-select items, try to split and match
-                    if ',' in str_item:
-                        parts = [part.strip() for part in str_item.split(',')]
-                        for part in parts:
-                            if part in values.keys():
-                                filtered_values.append(part)
-                            elif part.lower() in [v.lower() for v in values.values()]:
-                                for k, v in values.items():
-                                    if v.lower() == part.lower():
-                                        filtered_values.append(k)
-                                        break
-                            else:
-                                self.logger.log(
-                                    f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has unmatched list item "{part}" in "{str_item}"', 'warning')
-                    else:
-                        self.logger.log(
-                            f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has unmatched list value "{str_item}"', 'warning')
-                
-                if filtered_values:
-                    return filtered_values
+            if matching_config:
+                configs = [matching_config]
+                self.logger.log(f'[{self.project["code"]}][Tests] Using project-specific config for global field {custom_field["name"]}')
+
+            else:
+                # Use first config for global fields
+                configs = [configs[0]]
+                self.logger.log(f'[{self.project["code"]}][Tests] Using first config for field {custom_field["name"]}')
+
+
+        if not configs:
+            self.logger.log(f'[{self.project["code"]}][Tests] No configs found for field {custom_field["name"]}', 'warning')
+
+            return None
+
+        config = configs[0]
+        items = config['options'].get('items', '')
+        
+        if not items:
+            self.logger.log(f'[{self.project["code"]}][Tests] No items found in config for field {custom_field["name"]}', 'warning')
+
+            return None
+
+        # Parse items string into values dict
+        values = {}
+        for line in items.split('\n'):
+            if ',' in line:
+                key, title = line.split(',', 1)
+                values[key.strip()] = title.strip()
+
+        self.logger.log(f'[{self.project["code"]}][Tests] Field {custom_field["name"]} has {len(values)} valid values: {values}')
+
+        if isinstance(value, list):
+            filtered_values = []
+            
+            for item in value:
+                if str(item) in values.keys():
+                    filtered_values.append(item)
                 else:
-                    # Log but preserve original value instead of using fallback
                     self.logger.log(
-                        f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has no matched values from "{value}", preserving original', 'warning')
-                    return value
-            
-            return value
-        return value  # Return the original value instead of None
+                        f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has invalid value {item} (not in {list(values.keys())})',
+
+                        'warning')
+                    # Don't add invalid values to filtered_values
+
+            if filtered_values:
+                return filtered_values
+            else:
+                self.logger.log(f'[{self.project["code"]}][Tests] No valid values found for field {custom_field["name"]}', 'warning')
+
+                return None
+        else:
+            # Single value
+            if str(value) in values.keys():
+                return [value]
+            else:
+                self.logger.log(
+                    f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has invalid value {value} (not in {list(values.keys())})',
+
+                    'warning')
+                return None
 
     def __split_values(self, string: str, delimiter: str = ',') -> dict:
         items = string.split('\n')  # split items into a list
@@ -594,3 +644,13 @@ class Cases:
         formatted_text = url_pattern.sub(r'[\1](\1)', text)
 
         return formatted_text
+
+    def __normalize_custom_field_name(self, field_name: str) -> str:
+        """Normalize custom field name by removing project suffix if present"""
+        # Remove project suffix if it exists (e.g., "field_name_PROJECT" -> "field_name")
+        if '_' in field_name:
+            parts = field_name.split('_')
+            # Check if the last part looks like a project code (uppercase, short)
+            if len(parts[-1]) <= 5 and parts[-1].isupper():
+                return '_'.join(parts[:-1])
+        return field_name
