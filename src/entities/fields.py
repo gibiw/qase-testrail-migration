@@ -333,19 +333,17 @@ class Fields:
             self.logger.log(f'[Fields] Failed to create project-specific custom field: {field["label"]}', 'error')
 
     async def _create_project_specific_fields(self, field, qase_fields):
-        """Create unique fields for each project when field has multiple configurations"""
-        # Process each project configuration separately
+        """Create multiple project-specific fields based on field configurations"""
+        # Create a copy of the field for this project
+        field_copy = field.copy()
+        
         for config in field['configs']:
             if not config.get('context', {}).get('project_ids'):
-                self.logger.log(f'[Fields] Skipping config for field {field["name"]} - no project_ids found')
                 continue
                 
-            project_ids = config['context']['project_ids']
-            self.logger.log(f'[Fields] Processing config for field {field["name"]} with project_ids: {project_ids}')
-                
-            for project_id in project_ids:
+            for project_id in config['context']['project_ids']:
                 if project_id not in self.mappings.project_map:
-                    self.logger.log(f'[Fields] Skipping project {project_id} for field {field["name"]} - project not in mappings')
+                    self.logger.log(f'[Fields] Project ID {project_id} not found in project map, skipping', 'warning')
                     continue
                     
                 project_code = self.mappings.project_map[project_id]
@@ -422,7 +420,7 @@ class Fields:
                     continue
                 
                 # Create new field for this project
-                field_copy = field.copy()
+                # Update field_copy for this specific project
                 field_copy['label'] = field_name_with_project
                 field_copy['configs'] = [config]  # Use only this project's config
                 
