@@ -201,7 +201,7 @@ class Fields:
                             
                             for i, config in enumerate(field['configs']):
                                 if 'options' in config and 'items' in config['options'] and len(config['options']['items']) > 0:
-                                    values = self.qase.__split_values(config['options']['items'])
+                                    values = self.qase.split_values(config['options']['items'])
                                     project_ids = config['context']['project_ids'] if 'context' in config and 'project_ids' in config['context'] else []
                                     
                                     self.logger.log(f'[Fields] Config {i+1} for projects {project_ids}: {len(values)} values')

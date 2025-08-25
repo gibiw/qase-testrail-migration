@@ -278,7 +278,7 @@ class Cases:
                             f'[{self.project["code"]}][Tests] Custom field {name} validation returned None for value: {case[field_name]}', 'warning')
                         # Log available options for debugging
                         if len(custom_field['configs']) > 0 and 'options' in custom_field['configs'][0]:
-                            values = self.__split_values(custom_field['configs'][0]['options']['items'])
+                            values = self.split_values(custom_field['configs'][0]['options']['items'])
                             self.logger.log(
                                 f'[{self.project["code"]}][Tests] Available options for {name}: {values}', 'info')
                 else:
@@ -509,7 +509,7 @@ class Cases:
         # Fallback to first config if no project-specific values
         if project_values is None and len(custom_field['configs']) > 0:
             if 'options' in custom_field['configs'][0] and 'items' in custom_field['configs'][0]['options']:
-                project_values = self.__split_values(custom_field['configs'][0]['options']['items'])
+                project_values = self.split_values(custom_field['configs'][0]['options']['items'])
                 self.logger.log(f'[{self.project["code"]}][Tests] Using fallback values for field {custom_field["name"]} in project {self.project["testrail_id"]}')
         
         if project_values and len(project_values) > 0:
@@ -600,7 +600,7 @@ class Cases:
             return value
         return value  # Return the original value instead of None
 
-    def __split_values(self, string: str, delimiter: str = ',') -> dict:
+    def split_values(self, string: str, delimiter: str = ',') -> dict:
         items = string.split('\n')  # split items into a list
         result = {}
         seen_titles = set()  # Track seen titles to avoid duplicates

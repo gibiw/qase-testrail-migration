@@ -186,7 +186,7 @@ class QaseService:
                 
                 for i, config in enumerate(field['configs']):
                     if 'options' in config and 'items' in config['options'] and len(config['options']['items']) > 0:
-                        values = self.__split_values(config['options']['items'])
+                        values = self.split_values(config['options']['items'])
                         project_ids = config['context']['project_ids'] if 'context' in config and 'project_ids' in config['context'] else []
                         
                         self.logger.log(f'Config {i+1} for projects {project_ids}: {len(values)} values')
@@ -273,7 +273,7 @@ class QaseService:
             return self.__get_default_value(field)
 
     @staticmethod
-    def __split_values(string: str, delimiter: str = ',') -> dict:
+    def split_values(string: str, delimiter: str = ',') -> dict:
         items = string.split('\n')  # split items into a list
         result = {}
         seen_titles = set()  # Track seen titles to avoid duplicates (case-insensitive)
