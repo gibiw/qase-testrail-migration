@@ -740,7 +740,7 @@ class QaseService:
             self.logger.log(f'[Qase] Exception when updating field {field_id}: {e}', 'error')
             return False
         except Exception as e:
-            self.logger.log(f'[Qase] Exception when updating field {field_id}: {e}', 'error')
+            self.logger.log(f'[Qase] Unexpected error when updating field {field_id}: {e}', 'error')
             return False
 
     def get_custom_field(self, field_id: int):
@@ -762,5 +762,5 @@ class QaseService:
             self.logger.log(f'[Qase] Exception when getting field {field_id}: {e}', 'error')
             return None
         except Exception as e:
-            self.logger.log(f'[Qase] Exception when getting field {field_id}: {e}', 'error')
+            self.logger.log(f'[Qase] Unexpected error when getting field {field_id}: {e}', 'error')
             return None

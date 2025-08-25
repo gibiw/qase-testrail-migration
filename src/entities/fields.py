@@ -167,7 +167,9 @@ class Fields:
                     self.logger.log(f'[Fields] Global custom field already exists: {field["label"]}')
                     
                     # Check if field needs to be updated
+                    self.logger.log(f'[Fields] Checking if global field {field["label"]} needs update...')
                     needs_update, update_data = self.qase.check_field_update_needed(field, qase_field, self.mappings)
+                    self.logger.log(f'[Fields] Update check result for {field["label"]}: needs_update={needs_update}, update_data={update_data}')
 
                     
                     if needs_update:
@@ -175,6 +177,7 @@ class Fields:
 
                         
                         # Update the field
+                        self.logger.log(f'[Fields] Starting update for global field {field["label"]}...')
                         update_success = await self.pools.qs(self.qase.update_custom_field, qase_field.id, update_data)
 
                         
@@ -183,14 +186,17 @@ class Fields:
                             
                             # Refresh field data after update
                             if 'missing_values' in update_data or 'needs_mapping_update' in update_data:
+                                self.logger.log(f'[Fields] Refreshing field data for {field["label"]} after update...')
                                 # Get updated field to refresh values
                                 updated_field = await self.pools.qs(self.qase.get_custom_field, qase_field.id)
 
                                 
                                 if updated_field and hasattr(updated_field, 'value') and updated_field.value:
+                                    self.logger.log(f'[Fields] Got updated field data for {field["label"]}, processing values...')
 
                                     try:
                                         values_data = json.loads(updated_field.value) if isinstance(updated_field.value, str) else updated_field.value
+                                        self.logger.log(f'[Fields] Parsed values data for {field["label"]}: {values_data}')
 
                                         field['qase_values'] = {}
                                         for value in values_data:
@@ -200,18 +206,23 @@ class Fields:
 
                                                 field['qase_values'][value['id']] = value['title']
                                         
+                                        self.logger.log(f'[Fields] Created qase_values mapping for {field["label"]}: {field["qase_values"]}')
+                                        
                                         # Also create TestRail ID to Qase ID mapping
                                         if 'configs' in field and len(field['configs']) > 0:
                                             config = field['configs'][0]
                                             if 'options' in config and 'items' in config['options']:
                                                 items = config['options']['items']
                                                 if items:
+                                                    self.logger.log(f'[Fields] Processing items for field {field["label"]}: {items}')
                                                     # Parse items string into TestRail ID mapping
                                                     tr_values = {}
                                                     for line in items.split('\n'):
                                                         if ',' in line:
                                                             key, title = line.split(',', 1)
                                                             tr_values[key.strip()] = title.strip()
+                                                    
+                                                    self.logger.log(f'[Fields] Parsed TestRail values for {field["label"]}: {tr_values}')
                                                     
                                                     # Create TestRail ID to Qase ID mapping
                                                     field['tr_key_to_qase_id'] = {}
@@ -220,7 +231,7 @@ class Fields:
 
                                                             if tr_title.strip() == qase_title.strip():
                                                                 field['tr_key_to_qase_id'][tr_key] = qase_id
-
+                                                                self.logger.log(f'[Fields] Mapped TestRail {tr_key} -> Qase {qase_id} for {field["label"]}')
                                                                 break
                                                     
                                                     self.logger.log(f'[Fields] Created TestRail to Qase mapping for field {field["label"]}: {field["tr_key_to_qase_id"]}')
