@@ -399,14 +399,16 @@ class Fields:
                             # Check if field needs to be updated
                             needs_update, update_data = self.qase.check_field_update_needed(field_copy, qase_field, self.mappings)
 
+                            self.logger.log(f'[Fields] DEBUG: Project field {field_name_with_project} update check result: needs_update={needs_update}, update_data={update_data}')
                             
                             if needs_update:
                                 self.logger.log(f'[Fields] Project field {field_name_with_project} needs update: {update_data}')
 
-                                
                                 # Update the field
+                                self.logger.log(f'[Fields] DEBUG: Calling update_custom_field for project field {field_name_with_project} with data: {update_data}')
                                 update_success = await self.pools.qs(self.qase.update_custom_field, qase_field.id, update_data)
 
+                                self.logger.log(f'[Fields] DEBUG: update_custom_field result for project field {field_name_with_project}: {update_success}')
                                 
                                 if update_success:
                                     self.logger.log(f'[Fields] Successfully updated project field {field_name_with_project}')

@@ -580,8 +580,22 @@ class QaseService:
         needs_update = False
         update_data = {}
         
+        self.logger.log(f'[Qase] DEBUG: ===== STARTING FIELD UPDATE CHECK =====')
+        self.logger.log(f'[Qase] DEBUG: Field: {field["label"]} (type_id: {field["type_id"]})')
+        self.logger.log(f'[Qase] DEBUG: Field has qase_values: {bool(field.get("qase_values"))}')
+        self.logger.log(f'[Qase] DEBUG: Field configs count: {len(field.get("configs", []))}')
+        
+        # Log existing field details
+        self.logger.log(f'[Qase] DEBUG: Existing field ID: {getattr(existing_field, "id", "N/A")}')
+        self.logger.log(f'[Qase] DEBUG: Existing field title: {getattr(existing_field, "title", "N/A")}')
+        self.logger.log(f'[Qase] DEBUG: Existing field type: {getattr(existing_field, "type", "N/A")}')
+        self.logger.log(f'[Qase] DEBUG: Existing field is_enabled_for_all_projects: {getattr(existing_field, "is_enabled_for_all_projects", "N/A")}')
+        self.logger.log(f'[Qase] DEBUG: Existing field projects_codes: {getattr(existing_field, "projects_codes", "N/A")}')
+        self.logger.log(f'[Qase] DEBUG: Existing field has value: {bool(getattr(existing_field, "value", None))}')
+        
         # Check for missing values (for dropdown/multiselect fields)
         if field['type_id'] in (6, 12) and field.get('qase_values'):
+            self.logger.log(f'[Qase] DEBUG: Checking for missing values in dropdown/multiselect field')
             existing_values = set()
             if hasattr(existing_field, 'value') and existing_field.value:
                 for value_item in existing_field.value:
@@ -596,6 +610,10 @@ class QaseService:
             all_testrail_values_stripped = {value.strip() for value in all_testrail_values}
             
             missing_values = all_testrail_values_stripped - existing_values
+            self.logger.log(f'[Qase] DEBUG: Existing values: {existing_values}')
+            self.logger.log(f'[Qase] DEBUG: TestRail values: {all_testrail_values_stripped}')
+            self.logger.log(f'[Qase] DEBUG: Missing values: {missing_values}')
+            
             if missing_values:
                 needs_update = True
                 update_data['missing_values'] = list(missing_values)
@@ -603,12 +621,14 @@ class QaseService:
         
         # Check if field needs qase_values mapping update
         if field['type_id'] in (6, 12) and not field.get('qase_values'):
+            self.logger.log(f'[Qase] DEBUG: Field needs qase_values mapping update')
             # Field exists but doesn't have qase_values mapping
             needs_update = True
             update_data['needs_mapping_update'] = True
             self.logger.log(f'[Qase] Field {field["label"]} needs qase_values mapping update')
         
         # Check for missing project codes
+        self.logger.log(f'[Qase] DEBUG: ===== CHECKING PROJECT ASSOCIATIONS =====')
         # Always check projects, regardless of is_enabled_for_all_projects
         existing_projects = set()
         if hasattr(existing_field, 'projects_codes') and existing_field.projects_codes:
@@ -618,15 +638,30 @@ class QaseService:
         
         if field.get('configs') and len(field['configs']) > 0:
             config = field['configs'][0]
+            self.logger.log(f'[Qase] DEBUG: Field config context: {config.get("context", {})}')
+            self.logger.log(f'[Qase] DEBUG: Field config is_global: {config.get("context", {}).get("is_global", False)}')
+            self.logger.log(f'[Qase] DEBUG: Field config project_ids: {config.get("context", {}).get("project_ids", [])}')
+            
             if not config.get('context', {}).get('is_global', False):
                 if config['context'].get('project_ids'):
                     for project_id in config['context']['project_ids']:
+                        self.logger.log(f'[Qase] DEBUG: Processing project_id: {project_id}')
                         if project_id in mappings.project_map:
-                            expected_projects.add(mappings.project_map[project_id])
+                            project_code = mappings.project_map[project_id]
+                            expected_projects.add(project_code)
+                            self.logger.log(f'[Qase] DEBUG: Added project {project_code} (ID: {project_id}) to expected projects')
+                        else:
+                            self.logger.log(f'[Qase] DEBUG: Project ID {project_id} not found in project map')
+                            self.logger.log(f'[Qase] DEBUG: Available project IDs: {list(mappings.project_map.keys())}')
+        
+        self.logger.log(f'[Qase] DEBUG: Expected projects: {expected_projects}')
+        self.logger.log(f'[Qase] DEBUG: Existing projects: {existing_projects}')
         
         # Always add current project if field should be project-specific
         if expected_projects:
             missing_projects = expected_projects - existing_projects
+            self.logger.log(f'[Qase] DEBUG: Missing projects: {missing_projects}')
+            
             if missing_projects:
                 needs_update = True
                 update_data['missing_projects'] = list(missing_projects)
@@ -634,9 +669,15 @@ class QaseService:
             
             # Also check if field should be project-specific but is currently global
             if getattr(existing_field, 'is_enabled_for_all_projects', False):
+                self.logger.log(f'[Qase] DEBUG: Field should be project-specific but is currently global')
                 needs_update = True
                 update_data['should_be_project_specific'] = True
                 self.logger.log(f'[Qase] Field {field["label"]} should be project-specific but is currently global')
+        else:
+            self.logger.log(f'[Qase] DEBUG: No expected projects found for this field')
+        
+        self.logger.log(f'[Qase] DEBUG: Final result for {field["label"]}: needs_update={needs_update}, update_data={update_data}')
+        self.logger.log(f'[Qase] DEBUG: ===== ENDING FIELD UPDATE CHECK =====')
         
         return needs_update, update_data
 
