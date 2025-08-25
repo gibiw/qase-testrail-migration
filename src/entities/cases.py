@@ -291,8 +291,12 @@ class Cases:
         # Handle required custom fields that don't exist in TestRail data
         data = self._handle_required_custom_fields(data)
         
+        self.logger.log(f'[{self.project["code"]}][Tests] Data before validation: {data}', 'info')
+
         # Validate and fix any invalid custom field values
         data = self._validate_and_fix_custom_field_values(data)
+
+        self.logger.log(f'[{self.project["code"]}][Tests] Data after validation: {data}', 'info')
         
         return data
 
@@ -367,7 +371,7 @@ class Cases:
                 for qase_field in qase_custom_fields:
                     field_id_str = str(qase_field.id)
                     if field_id_str in data['custom_field']:
-                        current_value = data['custom_field'][field_id_str]
+                        current_value = self.__split_values(data['custom_field'][field_id_str])
                         
                         # For dropdown/select fields, validate the value
                         if qase_field.type.lower() in ['selectbox', 'radio', 'multiselect', 'checkbox']:
