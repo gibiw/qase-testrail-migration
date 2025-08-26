@@ -283,9 +283,13 @@ class Cases:
                                         # For project-specific fields, use proper mapping
                                         qase_values = []
                                         for v in value:
-                                            testrail_key = str(v)
+                                            testrail_key = v
                                             if custom_field.get('tr_key_to_qase_id') and testrail_key in custom_field['tr_key_to_qase_id']:
                                                 qase_id = custom_field['tr_key_to_qase_id'][testrail_key]
+                                                qase_values.append(str(qase_id))
+                                                self.logger.log(f'[{self.project["code"]}][Tests] Using tr_key_to_qase_id mapping for project-specific field {custom_field["name"]}: {testrail_key} -> {qase_id}')
+                                            elif custom_field.get('tr_key_to_qase_id') and str(testrail_key) in custom_field['tr_key_to_qase_id']:
+                                                qase_id = custom_field['tr_key_to_qase_id'][str(testrail_key)]
                                                 qase_values.append(str(qase_id))
                                                 self.logger.log(f'[{self.project["code"]}][Tests] Using tr_key_to_qase_id mapping for project-specific field {custom_field["name"]}: {testrail_key} -> {qase_id}')
                                             elif custom_field.get('qase_values') and testrail_key in custom_field['qase_values']:
