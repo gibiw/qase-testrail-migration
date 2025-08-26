@@ -284,7 +284,14 @@ class QaseService:
 
         try:
             # Check for existing cases to avoid duplicates
-            existing_cases = self._get_existing_cases(code)
+            existing_cases = []
+            try:
+                # Get existing cases to check for duplicates
+                response = api_instance.get_cases(code, limit=1000)
+                if response.status and response.result:
+                    existing_cases = response.result
+            except Exception as e:
+                self.logger.log(f"Warning: Could not fetch existing cases for duplicate check: {e}", 'warning')
             
             # Filter out cases that already exist (by title)
             existing_titles = {case.title for case in existing_cases}
@@ -543,38 +550,3 @@ class QaseService:
         api_response = api_instance.create_shared_step(
             project_code, SharedStepCreate(title=title, steps=inner_steps))
         return api_response.result.hash
-
-    def _get_existing_cases(self, project_code: str, limit: int = 100):
-        """
-        Get all existing cases from a project using pagination.
-        
-        Args:
-            project_code (str): The project code
-            limit (int): Number of cases to fetch per request (default: 100)
-            
-        Returns:
-            list: List of all existing cases
-        """
-        api_instance = CasesApi(self.client)
-        all_cases = []
-        offset = 0
-        
-        try:
-            while True:
-                response = api_instance.get_cases(project_code, limit=limit, offset=offset)
-                if response.status and response.result:
-                    batch_cases = response.result
-                    all_cases.extend(batch_cases)
-                    
-                    # If we got fewer cases than the limit, we've reached the end
-                    if len(batch_cases) < limit:
-                        break
-                    
-                    offset += limit
-                else:
-                    break
-                    
-        except Exception as e:
-            self.logger.log(f"Warning: Could not fetch existing cases for duplicate check: {e}", 'warning')
-            
-        return all_cases
