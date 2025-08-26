@@ -633,6 +633,9 @@ class QaseService:
         existing_projects = set()
         if hasattr(existing_field, 'projects_codes') and existing_field.projects_codes:
             existing_projects = set(existing_field.projects_codes)
+            self.logger.log(f'[Qase] DEBUG: Found existing projects: {existing_projects}')
+        else:
+            self.logger.log(f'[Qase] DEBUG: No existing projects found')
         
         expected_projects = set()
         
@@ -643,7 +646,9 @@ class QaseService:
             self.logger.log(f'[Qase] DEBUG: Field config project_ids: {config.get("context", {}).get("project_ids", [])}')
             
             if not config.get('context', {}).get('is_global', False):
+                self.logger.log(f'[Qase] DEBUG: Field is not global, checking project associations')
                 if config['context'].get('project_ids'):
+                    self.logger.log(f'[Qase] DEBUG: Processing {len(config["context"]["project_ids"])} project IDs')
                     for project_id in config['context']['project_ids']:
                         self.logger.log(f'[Qase] DEBUG: Processing project_id: {project_id}')
                         if project_id in mappings.project_map:
@@ -653,6 +658,12 @@ class QaseService:
                         else:
                             self.logger.log(f'[Qase] DEBUG: Project ID {project_id} not found in project map')
                             self.logger.log(f'[Qase] DEBUG: Available project IDs: {list(mappings.project_map.keys())}')
+                else:
+                    self.logger.log(f'[Qase] DEBUG: No project_ids found in config context')
+            else:
+                self.logger.log(f'[Qase] DEBUG: Field is global, skipping project association check')
+        else:
+            self.logger.log(f'[Qase] DEBUG: No configs found for field')
         
         self.logger.log(f'[Qase] DEBUG: Expected projects: {expected_projects}')
         self.logger.log(f'[Qase] DEBUG: Existing projects: {existing_projects}')
@@ -666,6 +677,8 @@ class QaseService:
                 needs_update = True
                 update_data['missing_projects'] = list(missing_projects)
                 self.logger.log(f'[Qase] Field {field["label"]} missing projects: {missing_projects}')
+            else:
+                self.logger.log(f'[Qase] DEBUG: No missing projects found')
             
             # Also check if field should be project-specific but is currently global
             if getattr(existing_field, 'is_enabled_for_all_projects', False):
@@ -673,6 +686,8 @@ class QaseService:
                 needs_update = True
                 update_data['should_be_project_specific'] = True
                 self.logger.log(f'[Qase] Field {field["label"]} should be project-specific but is currently global')
+            else:
+                self.logger.log(f'[Qase] DEBUG: Field is already project-specific')
         else:
             self.logger.log(f'[Qase] DEBUG: No expected projects found for this field')
         
@@ -681,66 +696,94 @@ class QaseService:
         
         return needs_update, update_data
 
-    def update_custom_field(self, field_id: int, update_data: dict) -> bool:
+    def update_custom_field(self, field_id: int, update_data: dict, field: dict = None, mappings = None) -> bool:
         """
         Update an existing custom field in Qase.
         """
+        self.logger.log(f'[Qase] ===== STARTING FIELD UPDATE =====')
+        self.logger.log(f'[Qase] Field ID: {field_id}')
+        self.logger.log(f'[Qase] Update data: {update_data}')
+        self.logger.log(f'[Qase] Field info: {field["label"] if field else "None"}')
+        self.logger.log(f'[Qase] Mappings available: {mappings is not None}')
+        
         try:
             # Get the existing field first
+            self.logger.log(f'[Qase] Retrieving existing field {field_id} from Qase...')
             existing_field = self.get_custom_field(field_id)
             if not existing_field:
                 self.logger.log(f'[Qase] Failed to get existing field {field_id} for update', 'error')
                 return False
             
+            self.logger.log(f'[Qase] Retrieved existing field: title="{getattr(existing_field, "title", "N/A")}", type="{getattr(existing_field, "type", "N/A")}", is_global={getattr(existing_field, "is_enabled_for_all_projects", "N/A")}')
+            self.logger.log(f'[Qase] Existing field projects_codes: {getattr(existing_field, "projects_codes", "N/A")}')
+            self.logger.log(f'[Qase] Existing field value count: {len(existing_field.value) if hasattr(existing_field, "value") and existing_field.value else 0}')
+            
             # Prepare update payload
+            self.logger.log(f'[Qase] Preparing update payload...')
             update_payload = {}
             
             # Always include required fields
             if hasattr(existing_field, 'title'):
                 update_payload['title'] = existing_field.title
+                self.logger.log(f'[Qase] Added title to payload: {existing_field.title}')
             if hasattr(existing_field, 'type'):
                 update_payload['type'] = existing_field.type
+                self.logger.log(f'[Qase] Added type to payload: {existing_field.type}')
             if hasattr(existing_field, 'is_enabled_for_all_projects'):
                 update_payload['is_enabled_for_all_projects'] = existing_field.is_enabled_for_all_projects
+                self.logger.log(f'[Qase] Added is_enabled_for_all_projects to payload: {existing_field.is_enabled_for_all_projects}')
             
             # Always include value field (required by Qase API)
+            self.logger.log(f'[Qase] Processing value field...')
             if hasattr(existing_field, 'value') and existing_field.value:
+                self.logger.log(f'[Qase] Value field type: {type(existing_field.value)}')
                 # Handle different types of value field
                 if isinstance(existing_field.value, str):
+                    self.logger.log(f'[Qase] Value is string, attempting JSON parse...')
                     # If value is a string, try to parse it as JSON
                     try:
                         import json
                         parsed_value = json.loads(existing_field.value)
+                        self.logger.log(f'[Qase] Successfully parsed JSON value: {parsed_value}')
                         if isinstance(parsed_value, list):
                             update_payload['value'] = parsed_value
+                            self.logger.log(f'[Qase] Added parsed list value to payload: {len(parsed_value)} items')
                         else:
                             update_payload['value'] = []
-                            self.logger.log(f'[Qase] Warning: Parsed value is not a list for field {field_id}')
-                    except (json.JSONDecodeError, ValueError):
+                            self.logger.log(f'[Qase] Warning: Parsed value is not a list for field {field_id}, setting empty list')
+                    except (json.JSONDecodeError, ValueError) as e:
                         # If parsing fails, set empty list
                         update_payload['value'] = []
-                        self.logger.log(f'[Qase] Warning: Failed to parse value string for field {field_id}, setting empty list')
+                        self.logger.log(f'[Qase] Warning: Failed to parse value string for field {field_id}: {e}, setting empty list')
                 elif isinstance(existing_field.value, list):
                     update_payload['value'] = existing_field.value
+                    self.logger.log(f'[Qase] Added existing list value to payload: {len(existing_field.value)} items')
                 else:
                     update_payload['value'] = []
                     self.logger.log(f'[Qase] Warning: Unexpected value type {type(existing_field.value)} for field {field_id}, setting empty list')
             else:
                 update_payload['value'] = []
+                self.logger.log(f'[Qase] No value field found, setting empty list')
             
             # Always include existing projects_codes to preserve field-project associations
             if hasattr(existing_field, 'projects_codes') and existing_field.projects_codes:
                 update_payload['projects_codes'] = existing_field.projects_codes
+                self.logger.log(f'[Qase] Added existing projects_codes to payload: {existing_field.projects_codes}')
+            else:
+                self.logger.log(f'[Qase] No existing projects_codes found')
             
             # Handle missing values
             if 'missing_values' in update_data:
+                self.logger.log(f'[Qase] Processing missing values: {update_data["missing_values"]}')
                 # Get existing values
                 existing_values = []
                 if hasattr(existing_field, 'value') and existing_field.value:
                     existing_values = existing_field.value
+                    self.logger.log(f'[Qase] Found {len(existing_values)} existing values')
                 
                 # Add new values
                 next_id = len(existing_values) + 1
+                self.logger.log(f'[Qase] Starting ID counter from: {next_id}')
                 for value_title in update_data['missing_values']:
                     # Check if value already exists to avoid duplicates
                     existing_value_titles = {v.title for v in existing_values}
@@ -750,27 +793,31 @@ class QaseService:
                             'title': value_title
                         })
                         next_id += 1
-                        self.logger.log(f'[Qase] Adding value "{value_title}" to field {field_id}')
+                        self.logger.log(f'[Qase] Adding value "{value_title}" to field {field_id} with ID {next_id-1}')
                     else:
-                        self.logger.log(f'[Qase] Value "{value_title}" already exists in field {field_id}')
+                        self.logger.log(f'[Qase] Value "{value_title}" already exists in field {field_id}, skipping')
                 
                 update_payload['value'] = existing_values
+                self.logger.log(f'[Qase] Updated value field with {len(existing_values)} total values')
             
             # Handle mapping update
             if 'needs_mapping_update' in update_data:
+                self.logger.log(f'[Qase] Field {field_id} needs mapping update - this should be handled by the calling code')
                 # This is a special case - we need to update the field's qase_values mapping
                 # For now, we'll just log this and handle it in the calling code
-                self.logger.log(f'[Qase] Field {field_id} needs mapping update - this should be handled by the calling code')
             
             # Handle missing projects
             if 'missing_projects' in update_data:
+                self.logger.log(f'[Qase] Processing missing projects: {update_data["missing_projects"]}')
                 existing_projects = getattr(existing_field, 'projects_codes', []) or []
+                self.logger.log(f'[Qase] Current projects: {existing_projects}')
                 new_projects = existing_projects + update_data['missing_projects']
+                self.logger.log(f'[Qase] New projects list: {new_projects}')
                 update_payload['projects_codes'] = new_projects
-                self.logger.log(f'[Qase] Adding projects {update_data["missing_projects"]} to field {field_id}')
+                self.logger.log(f'[Qase] Added projects {update_data["missing_projects"]} to field {field_id}')
             
             # Handle field that should be project-specific but is currently global
-            if 'should_be_project_specific' in update_data:
+            if 'should_be_project_specific' in update_data and field and mappings:
                 # Get expected projects from field config
                 expected_projects = []
                 if field.get('configs') and len(field['configs']) > 0:
@@ -790,22 +837,30 @@ class QaseService:
                 self.logger.log(f'[Qase] No updates needed for field {field_id}')
                 return True
             
+            # Log final payload
+            self.logger.log(f'[Qase] Final update payload: {update_payload}')
+            
             # Call the API to update the field
+            self.logger.log(f'[Qase] Calling Qase API to update field {field_id}...')
             api_instance = CustomFieldsApi(self.client)
             api_response = api_instance.update_custom_field(field_id, update_payload)
             
             if api_response.status:
                 self.logger.log(f'[Qase] Successfully updated field {field_id}')
+                self.logger.log(f'[Qase] ===== FIELD UPDATE COMPLETED SUCCESSFULLY =====')
                 return True
             else:
                 self.logger.log(f'[Qase] Failed to update field {field_id}: {api_response.error}', 'error')
+                self.logger.log(f'[Qase] ===== FIELD UPDATE FAILED =====')
                 return False
                 
         except ApiException as e:
-            self.logger.log(f'[Qase] Exception when updating field {field_id}: {e}', 'error')
+            self.logger.log(f'[Qase] API Exception when updating field {field_id}: {e}', 'error')
+            self.logger.log(f'[Qase] ===== FIELD UPDATE FAILED WITH API EXCEPTION =====')
             return False
         except Exception as e:
             self.logger.log(f'[Qase] Unexpected error when updating field {field_id}: {e}', 'error')
+            self.logger.log(f'[Qase] ===== FIELD UPDATE FAILED WITH UNEXPECTED ERROR =====')
             return False
 
     def get_custom_field(self, field_id: int):

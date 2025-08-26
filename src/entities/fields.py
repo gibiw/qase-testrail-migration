@@ -174,19 +174,23 @@ class Fields:
                     
                     if needs_update:
                         self.logger.log(f'[Fields] Global field {field["label"]} needs update: {update_data}')
+                        self.logger.log(f'[Fields] Update types: {list(update_data.keys())}')
 
                         
                         # Update the field
-                        self.logger.log(f'[Fields] Starting update for global field {field["label"]}...')
-                        update_success = await self.pools.qs(self.qase.update_custom_field, qase_field.id, update_data)
+                        self.logger.log(f'[Fields] Starting update for global field {field["label"]} (ID: {qase_field.id})...')
+                        self.logger.log(f'[Fields] Calling update_custom_field with: field_id={qase_field.id}, update_data={update_data}')
+                        update_success = await self.pools.qs(self.qase.update_custom_field, qase_field.id, update_data, field, self.mappings)
 
                         
                         if update_success:
                             self.logger.log(f'[Fields] Successfully updated global field {field["label"]}')
+                            self.logger.log(f'[Fields] Update completed successfully for field {field["label"]} (ID: {qase_field.id})')
                             
                             # Refresh field data after update
                             if 'missing_values' in update_data or 'needs_mapping_update' in update_data:
                                 self.logger.log(f'[Fields] Refreshing field data for {field["label"]} after update...')
+                                self.logger.log(f'[Fields] Refresh reason: missing_values={missing_values in update_data}, needs_mapping_update={needs_mapping_update in update_data}')
                                 # Get updated field to refresh values
                                 updated_field = await self.pools.qs(self.qase.get_custom_field, qase_field.id)
 
@@ -288,7 +292,7 @@ class Fields:
 
                         
                         # Update the field
-                        update_success = await self.pools.qs(self.qase.update_custom_field, qase_field.id, update_data)
+                        update_success = await self.pools.qs(self.qase.update_custom_field, qase_field.id, update_data, field, self.mappings)
 
                         
                         if update_success:
@@ -406,7 +410,7 @@ class Fields:
 
                                 # Update the field
                                 self.logger.log(f'[Fields] DEBUG: Calling update_custom_field for project field {field_name_with_project} with data: {update_data}')
-                                update_success = await self.pools.qs(self.qase.update_custom_field, qase_field.id, update_data)
+                                update_success = await self.pools.qs(self.qase.update_custom_field, qase_field.id, update_data, field_copy, self.mappings)
 
                                 self.logger.log(f'[Fields] DEBUG: update_custom_field result for project field {field_name_with_project}: {update_success}')
                                 
