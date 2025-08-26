@@ -205,6 +205,8 @@ class Cases:
                 
                 # Look for project-specific field first
                 project_specific_key = f"{normalized_name}_{self.project['code']}"
+                self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Looking for project-specific field {project_specific_key}')
+                self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Project-specific field {project_specific_key} in mappings: {project_specific_key in self.mappings.custom_fields}')
                 if project_specific_key in self.mappings.custom_fields and case[field_name]:
                     custom_field = self.mappings.custom_fields[project_specific_key]
                     self.logger.log(f'[{self.project["code"]}][Tests] Using project-specific field {project_specific_key} for case {case["title"]} with value: {case[field_name]}')
@@ -221,6 +223,10 @@ class Cases:
                                 qase_value = None
                                 
                                 # Try to find mapping in tr_key_to_qase_id first
+                                self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Looking for TestRail value {testrail_key} in field {custom_field["name"]}')
+                                self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Field {custom_field["name"]} tr_key_to_qase_id: {custom_field.get("tr_key_to_qase_id")}')
+                                self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Field {custom_field["name"]} qase_values: {custom_field.get("qase_values")}')
+                                
                                 if custom_field.get('tr_key_to_qase_id') and testrail_key in custom_field['tr_key_to_qase_id']:
                                     qase_value = custom_field['tr_key_to_qase_id'][testrail_key]
                                     self.logger.log(f'[{self.project["code"]}][Tests] Using tr_key_to_qase_id mapping for field {custom_field["name"]}: {testrail_key} -> {qase_value}')
@@ -232,6 +238,8 @@ class Cases:
                                 if qase_value is None:
                                     # If no mapping found, log warning and skip this field
                                     self.logger.log(f'[{self.project["code"]}][Tests] Warning: No Qase mapping found for TestRail value {testrail_key} in field {custom_field["name"]}', 'warning')
+                                    self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Available TestRail keys in tr_key_to_qase_id: {list(custom_field.get("tr_key_to_qase_id", {}).keys()) if custom_field.get("tr_key_to_qase_id") else "None"}')
+                                    self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Available TestRail keys in qase_values: {list(custom_field.get("qase_values", {}).keys()) if custom_field.get("qase_values") else "None"}')
                                     continue
                                 
                                 data['custom_field'][str(custom_field['qase_id'])] = str(qase_value)
@@ -335,6 +343,8 @@ class Cases:
                             
                 # Fallback to original field name for backward compatibility
                 elif normalized_name in self.mappings.custom_fields and case[field_name]:
+                    self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Found base field {normalized_name} in mappings')
+                    self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Base field {normalized_name} has tr_key_to_qase_id: {self.mappings.custom_fields[normalized_name].get("tr_key_to_qase_id")}')
                     custom_field = self.mappings.custom_fields[normalized_name]
                     self.logger.log(f'[{self.project["code"]}][Tests] Using global field {normalized_name} for case {case["title"]} with value: {case[field_name]}')
 
@@ -447,6 +457,8 @@ class Cases:
                         self.logger.log(f'[{self.project["code"]}][Tests] Set global field {custom_field["name"]} to text value')
 
                 else:
+                    self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Field {normalized_name} not found in mappings')
+                    self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Available fields: {list(self.mappings.custom_fields.keys())}')
                     self.logger.log(f'[{self.project["code"]}][Tests] No field found for {normalized_name} or {project_specific_key}')
 
             if field_name[len('custom_'):] in self.mappings.step_fields and case[field_name]:

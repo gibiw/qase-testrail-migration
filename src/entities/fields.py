@@ -255,6 +255,30 @@ class Fields:
                             values = json.loads(qase_field.value)
                             for value in values:
                                 field['qase_values'][value['id']] = value['title']
+                        
+                        # Also create TestRail ID to Qase ID mapping for existing global fields
+                        if 'configs' in field and len(field['configs']) > 0:
+                            config = field['configs'][0]
+                            if 'options' in config and 'items' in config['options']:
+                                items = config['options']['items']
+                                if items:
+                                    # Parse items string into TestRail ID mapping
+                                    tr_values = {}
+                                    for line in items.split('\n'):
+                                        if ',' in line:
+                                            key, title = line.split(',', 1)
+                                            tr_values[key.strip()] = title.strip()
+                                    
+                                    # Create TestRail ID to Qase ID mapping
+                                    field['tr_key_to_qase_id'] = {}
+                                    for tr_key, tr_title in tr_values.items():
+                                        for qase_id, qase_title in field['qase_values'].items():
+                                            if tr_title.strip() == qase_title.strip():
+                                                field['tr_key_to_qase_id'][tr_key] = qase_id
+                                                break
+                                    
+                                    self.logger.log(f'[Fields] Created TestRail to Qase mapping for existing global field {field["label"]}: {field["tr_key_to_qase_id"]}')
+                    
                     field['qase_id'] = qase_field.id
                     self.mappings.custom_fields[field['name']] = field
                     return
@@ -458,8 +482,8 @@ class Fields:
                                                                     if tr_title.strip() == qase_title.strip():
                                                                         field_copy['tr_key_to_qase_id'][tr_key] = qase_id
                                                                         break
-                                                            
-                                                            self.logger.log(f'[Fields] Created TestRail to Qase mapping for project field {field_name_with_project}: {field_copy["tr_key_to_qase_id"]}')
+                                                    
+                                                    self.logger.log(f'[Fields] Created TestRail to Qase mapping for project field {field_name_with_project}: {field_copy["tr_key_to_qase_id"]}')
                                                 
                                             except (json.JSONDecodeError, AttributeError) as e:
                                                 self.logger.log(f'[Fields] Error updating project field mapping: {e}', 'warning')
@@ -487,8 +511,16 @@ class Fields:
                                 base_field_copy = field_copy.copy()
                                 base_field_copy['name'] = field['name']  # Keep original name
                                 base_field_copy['label'] = field['label']  # Keep original label
+                                # Ensure the base field has the same tr_key_to_qase_id mapping
+                                if 'tr_key_to_qase_id' in field_copy:
+                                    base_field_copy['tr_key_to_qase_id'] = field_copy['tr_key_to_qase_id'].copy()
+                                # Ensure the base field has the same qase_values mapping
+                                if 'qase_values' in field_copy:
+                                    base_field_copy['qase_values'] = field_copy['qase_values'].copy()
+                                # Set the qase_id to point to the project-specific field
+                                base_field_copy['qase_id'] = field_copy['qase_id']
                                 self.mappings.custom_fields[field['name']] = base_field_copy
-                                self.logger.log(f'[Fields] Created base field mapping for {field["name"]} -> {field_name_with_project}')
+                                self.logger.log(f'[Fields] Created base field mapping for {field["name"]} -> {field_name_with_project} with tr_key_to_qase_id: {base_field_copy.get("tr_key_to_qase_id", {})}')
                             
                             self.mappings.stats.add_custom_field('qase')
                             field_exists = True
@@ -524,8 +556,19 @@ class Fields:
                     # This allows test cases to find the field by its original TestRail name
                     if field['name'] not in self.mappings.custom_fields:
                         # Create a reference to the project-specific field instead of a copy
-                        self.mappings.custom_fields[field['name']] = field_copy
-                        self.logger.log(f'[Fields] Created base field mapping for {field["name"]} -> {field_name_with_project}')
+                        base_field_copy = field_copy.copy()
+                        base_field_copy['name'] = field['name']  # Keep original name
+                        base_field_copy['label'] = field['label']  # Keep original label
+                        # Ensure the base field has the same tr_key_to_qase_id mapping
+                        if 'tr_key_to_qase_id' in field_copy:
+                            base_field_copy['tr_key_to_qase_id'] = field_copy['tr_key_to_qase_id'].copy()
+                        # Ensure the base field has the same qase_values mapping
+                        if 'qase_values' in field_copy:
+                            base_field_copy['qase_values'] = field_copy['qase_values'].copy()
+                        # Set the qase_id to point to the project-specific field
+                        base_field_copy['qase_id'] = field_copy['qase_id']
+                        self.mappings.custom_fields[field['name']] = base_field_copy
+                        self.logger.log(f'[Fields] Created base field mapping for {field["name"]} -> {field_name_with_project} with tr_key_to_qase_id: {base_field_copy.get("tr_key_to_qase_id", {})}')
                     
                     self.mappings.stats.add_custom_field('qase')
                 else:

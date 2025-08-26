@@ -242,6 +242,8 @@ class QaseService:
                 self.logger.log(f'[Qase] Field {field["label"]} has {len(values)} values')
                 self.logger.log(f'[Qase] DEBUG: Final qase_values mapping: {field["qase_values"]}')
                 self.logger.log(f'[Qase] DEBUG: Final tr_key_to_qase_id mapping: {field["tr_key_to_qase_id"]}')
+                self.logger.log(f'[Qase] DEBUG: Field {field["label"]} has tr_key_to_qase_id: {field.get("tr_key_to_qase_id", {})}')
+
             else:
                 self.logger.log(f'[Qase] Field {field["label"]} has no values to process')
         else:
@@ -639,6 +641,7 @@ class QaseService:
         # Check for missing values (for dropdown/multiselect fields)
         if field['type_id'] in (6, 12) and field.get('qase_values'):
             self.logger.log(f'[Qase] DEBUG: Checking for missing values in dropdown/multiselect field')
+            self.logger.log(f'[Qase] DEBUG: Field {field["label"]} has tr_key_to_qase_id: {field.get("tr_key_to_qase_id", {})}')
             existing_values = set()
             if hasattr(existing_field, 'value') and existing_field.value:
                 for value_item in existing_field.value:
