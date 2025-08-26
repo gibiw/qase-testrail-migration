@@ -232,16 +232,16 @@ class QaseService:
                         )
                         field['qase_values'][qase_id] = value_stripped
                         self.logger.log(f'[Qase] DEBUG: Created value: TestRail ID {key} -> Qase ID {qase_id} -> "{value_stripped}"')
-                    
-                    # Create TestRail ID to Qase ID mapping
-                    field['tr_key_to_qase_id'] = {}
-                    for tr_key, tr_title in values.items():
-                        tr_key_int = int(tr_key)
-                        field['tr_key_to_qase_id'][tr_key_int] = tr_key_int
-                    
-                    self.logger.log(f'[Qase] Field {field["label"]} has {len(values)} values')
-                    self.logger.log(f'[Qase] DEBUG: Final qase_values mapping: {field["qase_values"]}')
-                    self.logger.log(f'[Qase] DEBUG: Final tr_key_to_qase_id mapping: {field["tr_key_to_qase_id"]}')
+                
+                # Create TestRail ID to Qase ID mapping
+                field['tr_key_to_qase_id'] = {}
+                for tr_key, tr_title in values.items():
+                    tr_key_int = int(tr_key)
+                    field['tr_key_to_qase_id'][tr_key_int] = tr_key_int
+                
+                self.logger.log(f'[Qase] Field {field["label"]} has {len(values)} values')
+                self.logger.log(f'[Qase] DEBUG: Final qase_values mapping: {field["qase_values"]}')
+                self.logger.log(f'[Qase] DEBUG: Final tr_key_to_qase_id mapping: {field["tr_key_to_qase_id"]}')
             else:
                 self.logger.log(f'[Qase] Field {field["label"]} has no values to process')
         else:
