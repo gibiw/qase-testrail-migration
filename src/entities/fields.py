@@ -480,6 +480,17 @@ class Fields:
                             field_copy['qase_id'] = qase_field.id
                             # Store field mapping with project-specific key
                             self.mappings.custom_fields[f"{field['name']}_{project_code}"] = field_copy
+                            
+                            # Also create mapping for base field name (without project suffix)
+                            # This allows test cases to find the field by its original TestRail name
+                            if field['name'] not in self.mappings.custom_fields:
+                                base_field_copy = field_copy.copy()
+                                base_field_copy['name'] = field['name']  # Keep original name
+                                base_field_copy['label'] = field['label']  # Keep original label
+                                self.mappings.custom_fields[field['name']] = base_field_copy
+                                self.logger.log(f'[Fields] Created base field mapping for {field["name"]} -> {field_name_with_project}')
+                            
+                            self.mappings.stats.add_custom_field('qase')
                             field_exists = True
                             break
                 
@@ -508,6 +519,16 @@ class Fields:
                     field_copy['qase_id'] = qase_id
                     # Store field mapping with project-specific key
                     self.mappings.custom_fields[f"{field['name']}_{project_code}"] = field_copy
+                    
+                    # Also create mapping for base field name (without project suffix)
+                    # This allows test cases to find the field by its original TestRail name
+                    if field['name'] not in self.mappings.custom_fields:
+                        base_field_copy = field_copy.copy()
+                        base_field_copy['name'] = field['name']  # Keep original name
+                        base_field_copy['label'] = field['label']  # Keep original label
+                        self.mappings.custom_fields[field['name']] = base_field_copy
+                        self.logger.log(f'[Fields] Created base field mapping for {field["name"]} -> {field_name_with_project}')
+                    
                     self.mappings.stats.add_custom_field('qase')
                 else:
                     self.logger.log(f'[Fields] Failed to create custom field for project {project_code}: {field_name_with_project}', 'error')
