@@ -262,6 +262,9 @@ class Cases:
                                                 if custom_field.get('tr_key_to_qase_id') and testrail_key in custom_field['tr_key_to_qase_id']:
                                                     qase_id = custom_field['tr_key_to_qase_id'][testrail_key]
                                                     qase_values.append(str(qase_id))
+                                                elif custom_field.get('tr_key_to_qase_id') and int(testrail_key) in custom_field['tr_key_to_qase_id']:
+                                                    qase_id = custom_field['tr_key_to_qase_id'][int(testrail_key)]
+                                                    qase_values.append(str(qase_id))    
                                                 elif custom_field.get('qase_values') and testrail_key in custom_field['qase_values']:
                                                     # Fallback to old logic if tr_key_to_qase_id not available
                                                     qase_id = custom_field['qase_values'][testrail_key]
