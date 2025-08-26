@@ -523,10 +523,8 @@ class Fields:
                     # Also create mapping for base field name (without project suffix)
                     # This allows test cases to find the field by its original TestRail name
                     if field['name'] not in self.mappings.custom_fields:
-                        base_field_copy = field_copy.copy()
-                        base_field_copy['name'] = field['name']  # Keep original name
-                        base_field_copy['label'] = field['label']  # Keep original label
-                        self.mappings.custom_fields[field['name']] = base_field_copy
+                        # Create a reference to the project-specific field instead of a copy
+                        self.mappings.custom_fields[field['name']] = field_copy
                         self.logger.log(f'[Fields] Created base field mapping for {field["name"]} -> {field_name_with_project}')
                     
                     self.mappings.stats.add_custom_field('qase')
