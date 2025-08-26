@@ -160,7 +160,33 @@ class QaseService:
         
         # Handle project-specific configurations
         if field.get('configs') and len(field['configs']) > 0:
-            config = field['configs'][0]  # Use the first (and only) config for this project
+            # Find the appropriate config for the current project
+            current_project_id = None
+            if mappings and hasattr(mappings, 'project_map') and len(mappings.project_map) > 0:
+                # Find the project ID that maps to the current project code
+                for tr_id, qase_code in mappings.project_map.items():
+                    if qase_code == 'QBT':  # Assuming QBT is the current project
+                        current_project_id = tr_id
+                        break
+            
+            self.logger.log(f'[Qase] DEBUG: Current project ID from mappings: {current_project_id}')
+            
+            # Select config that matches current project, or fallback to first config
+            selected_config = None
+            if current_project_id:
+                for i, config in enumerate(field['configs']):
+                    self.logger.log(f'[Qase] DEBUG: Checking config {i+1}: project_ids={config.get("context", {}).get("project_ids", [])}')
+                    if (config.get('context', {}).get('project_ids') and 
+                        current_project_id in config['context']['project_ids']):
+                        selected_config = config
+                        self.logger.log(f'[Qase] DEBUG: Selected config {i+1} for project ID {current_project_id}')
+                        break
+            
+            if not selected_config:
+                selected_config = field['configs'][0]
+                self.logger.log(f'[Qase] DEBUG: No matching config found for project ID {current_project_id}, using first config')
+            
+            config = selected_config
             
             # Set required flag based on project configuration
             if config.get('options', {}).get('is_required'):
@@ -208,6 +234,7 @@ class QaseService:
                         self.logger.log(f'[Qase] DEBUG: Created value: TestRail ID {key} -> Qase ID {qase_id} -> "{value_stripped}"')
                 
                 self.logger.log(f'[Qase] Field {field["label"]} has {len(values)} values')
+                self.logger.log(f'[Qase] DEBUG: Final qase_values mapping: {field["qase_values"]}')
             else:
                 self.logger.log(f'[Qase] Field {field["label"]} has no values to process')
         else:
@@ -672,12 +699,38 @@ class QaseService:
                 else:
                     self.logger.log(f'[Qase] DEBUG:   Config is not a dict: {type(config)}')
             
-            # Use first config for processing
-            config = field['configs'][0]
-            self.logger.log(f'[Qase] DEBUG: Using first config for processing:')
+            # Find the appropriate config for the current project
+            current_project_id = None
+            if mappings and hasattr(mappings, 'project_map') and len(mappings.project_map) > 0:
+                # Find the project ID that maps to the current project code
+                for tr_id, qase_code in mappings.project_map.items():
+                    if qase_code == 'QBT':  # Assuming QBT is the current project
+                        current_project_id = tr_id
+                        break
+            
+            self.logger.log(f'[Qase] DEBUG: Current project ID from mappings: {current_project_id}')
+            
+            # Select config that matches current project, or fallback to first config
+            selected_config = None
+            if current_project_id:
+                for i, config in enumerate(field['configs']):
+                    self.logger.log(f'[Qase] DEBUG: Checking config {i+1}: project_ids={config.get("context", {}).get("project_ids", [])}')
+                    if (config.get('context', {}).get('project_ids') and 
+                        current_project_id in config['context']['project_ids']):
+                        selected_config = config
+                        self.logger.log(f'[Qase] DEBUG: Selected config {i+1} for project ID {current_project_id}')
+                        break
+            
+            if not selected_config:
+                selected_config = field['configs'][0]
+                self.logger.log(f'[Qase] DEBUG: No matching config found for project ID {current_project_id}, using first config')
+            
+            config = selected_config
+            self.logger.log(f'[Qase] DEBUG: Using selected config for processing:')
             self.logger.log(f'[Qase] DEBUG:   Config context: {config.get("context", {})}')
             self.logger.log(f'[Qase] DEBUG:   Config is_global: {config.get("context", {}).get("is_global", False)}')
             self.logger.log(f'[Qase] DEBUG:   Config project_ids: {config.get("context", {}).get("project_ids", [])}')
+            self.logger.log(f'[Qase] DEBUG:   Config options: {config.get("options", {})}')
             self.logger.log(f'[Qase] DEBUG: ===== END FIELD CONFIGURATIONS DETAILS =====')
             
             if not config.get('context', {}).get('is_global', False):
@@ -764,6 +817,7 @@ class QaseService:
                 elif mappings and hasattr(mappings, 'project_map') and len(mappings.project_map) > 0:
                     # Use the first available project as current
                     current_project = list(mappings.project_map.values())[0]
+                    self.logger.log(f'[Qase] DEBUG: Using current project from project_map: {current_project}')
                 
                 if current_project and current_project not in existing_projects:
                     self.logger.log(f'[Qase] DEBUG: Adding current project {current_project} to field')
