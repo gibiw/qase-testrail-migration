@@ -184,9 +184,24 @@ class Cases:
 
     # Done
     def _import_custom_fields_for_case(self, case: dict, data: dict) -> dict:
+        # Special logging for field 133
+        if 'custom_133' in case:
+            self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Field 133 found in case {case["title"]}')
+            self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Field 133 value: {case["custom_133"]}')
+            self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Field 133 value type: {type(case["custom_133"])}')
+        
         for field_name in case:
             if field_name.startswith('custom_'):
                 normalized_name = self.__normalize_custom_field_name(field_name[len('custom_'):])
+                
+                # Special logging for field 133
+                if field_name == 'custom_133':
+                    self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Processing field 133 - normalized_name: {normalized_name}')
+                    self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Field 133 - project_specific_key: {normalized_name}_{self.project["code"]}')
+                    self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Field 133 - in custom_fields: {normalized_name}_{self.project["code"] in self.mappings.custom_fields}')
+                    if f"{normalized_name}_{self.project['code']}" in self.mappings.custom_fields:
+                        custom_field = self.mappings.custom_fields[f"{normalized_name}_{self.project['code']}"]
+                        self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Field 133 - custom_field: {custom_field}')
                 
                 # Look for project-specific field first
                 project_specific_key = f"{normalized_name}_{self.project['code']}"
@@ -528,6 +543,11 @@ class Cases:
             return None
 
         self.logger.log(f'[{self.project["code"]}][Tests] Validating field {custom_field["name"]} (type_id: {custom_field["type_id"]}) with value: {value}')
+        
+        # Special logging for field 133 to debug the validation issue
+        if custom_field.get('name') == '133' or custom_field.get('id') == 133:
+            self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Field 133 validation - custom_field: {custom_field}')
+            self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Field 133 validation - value: {value} (type: {type(value)})')
 
         # For project-specific fields, use the field's own config
         if custom_field.get('project_id') and custom_field.get('project_code'):
@@ -553,6 +573,14 @@ class Cases:
                 # Use first config for global fields
                 configs = [configs[0]]
                 self.logger.log(f'[{self.project["code"]}][Tests] Using first config for field {custom_field["name"]}')
+        
+        # Special logging for field 133
+        if custom_field.get('name') == '133' or custom_field.get('id') == 133:
+            self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Field 133 - configs: {configs}')
+            for i, cfg in enumerate(configs):
+                self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Field 133 - config {i+1}: {cfg}')
+                if isinstance(cfg, dict) and 'options' in cfg:
+                    self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Field 133 - config {i+1} options: {cfg["options"]}')
 
 
         if not configs:
@@ -562,6 +590,12 @@ class Cases:
 
         config = configs[0]
         items = config['options'].get('items', '')
+        
+        # Special logging for field 133
+        if custom_field.get('name') == '133' or custom_field.get('id') == 133:
+            self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Field 133 - config: {config}')
+            self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Field 133 - items: {items}')
+            self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Field 133 - items type: {type(items)}')
         
         if not items:
             self.logger.log(f'[{self.project["code"]}][Tests] No items found in config for field {custom_field["name"]}', 'warning')
@@ -576,6 +610,12 @@ class Cases:
                 values[key.strip()] = title.strip()
 
         self.logger.log(f'[{self.project["code"]}][Tests] Field {custom_field["name"]} has {len(values)} valid values: {values}')
+        
+        # Special logging for field 133
+        if custom_field.get('name') == '133' or custom_field.get('id') == 133:
+            self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Field 133 - parsed values: {values}')
+            self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Field 133 - value to validate: {value}')
+            self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Field 133 - value in values.keys(): {str(value) in values.keys()}')
 
         if isinstance(value, list):
             filtered_values = []
