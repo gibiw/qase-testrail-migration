@@ -269,14 +269,44 @@ class Cases:
                                         else:
                                             self.logger.log(f'[{self.project["code"]}][Tests] Global field {custom_field["name"]} validation failed for value: {value}')
                                     else:
-                                        # For project-specific fields, use the old logic
-                                        qase_values = [str(int(v) + 1) for v in value]
-                                        data['custom_field'][str(custom_field['qase_id'])] = ','.join(qase_values)
-                                        self.logger.log(f'[{self.project["code"]}][Tests] Set project-specific multiselect field {custom_field["name"]} to values: {",".join(qase_values)}')
+                                        # For project-specific fields, use proper mapping
+                                        qase_values = []
+                                        for v in value:
+                                            testrail_key = str(v)
+                                            if custom_field.get('tr_key_to_qase_id') and testrail_key in custom_field['tr_key_to_qase_id']:
+                                                qase_id = custom_field['tr_key_to_qase_id'][testrail_key]
+                                                qase_values.append(str(qase_id))
+                                                self.logger.log(f'[{self.project["code"]}][Tests] Using tr_key_to_qase_id mapping for project-specific field {custom_field["name"]}: {testrail_key} -> {qase_id}')
+                                            elif custom_field.get('qase_values') and testrail_key in custom_field['qase_values']:
+                                                qase_id = custom_field['qase_values'][testrail_key]
+                                                qase_values.append(str(qase_id))
+                                                self.logger.log(f'[{self.project["code"]}][Tests] Using qase_values fallback for project-specific field {custom_field["name"]}: {testrail_key} -> {qase_id}')
+                                            else:
+                                                self.logger.log(f'[{self.project["code"]}][Tests] Warning: TestRail value {v} not found in mapping for project-specific field {custom_field["name"]}', 'warning')
+                                        
+                                        if qase_values:
+                                            data['custom_field'][str(custom_field['qase_id'])] = ','.join(qase_values)
+                                            self.logger.log(f'[{self.project["code"]}][Tests] Set project-specific multiselect field {custom_field["name"]} to values: {",".join(qase_values)}')
+                                        else:
+                                            self.logger.log(f'[{self.project["code"]}][Tests] No valid Qase IDs found for project-specific field {custom_field["name"]}', 'warning')
                                 else:  # single select (type_id = 6)
-                                    # For single select, take first value only
-                                    data['custom_field'][str(custom_field['qase_id'])] = str(int(value[0]) + 1)
-                                    self.logger.log(f'[{self.project["code"]}][Tests] Set single select field {custom_field["name"]} to value: {str(int(value[0]) + 1)}')
+                                    # For single select, use proper mapping
+                                    testrail_key = str(value[0])
+                                    qase_value = None
+                                    
+                                    if custom_field.get('tr_key_to_qase_id') and testrail_key in custom_field['tr_key_to_qase_id']:
+                                        qase_value = custom_field['tr_key_to_qase_id'][testrail_key]
+                                        self.logger.log(f'[{self.project["code"]}][Tests] Using tr_key_to_qase_id mapping for project-specific single select field {custom_field["name"]}: {testrail_key} -> {qase_value}')
+                                    elif custom_field.get('qase_values') and testrail_key in custom_field['qase_values']:
+                                        qase_value = custom_field['qase_values'][testrail_key]
+                                        self.logger.log(f'[{self.project["code"]}][Tests] Using qase_values fallback for project-specific single select field {custom_field["name"]}: {testrail_key} -> {qase_value}')
+                                    else:
+                                        self.logger.log(f'[{self.project["code"]}][Tests] Warning: No Qase mapping found for TestRail value {testrail_key} in project-specific field {custom_field["name"]}', 'warning')
+                                        continue
+                                    
+                                    if qase_value is not None:
+                                        data['custom_field'][str(custom_field['qase_id'])] = str(qase_value)
+                                        self.logger.log(f'[{self.project["code"]}][Tests] Set project-specific single select field {custom_field["name"]} to value: {str(qase_value)}')
 
                         else:
                             self.logger.log(f'[{self.project["code"]}][Tests] Field {custom_field["name"]} validation failed for value: {case[field_name]}')
@@ -368,14 +398,44 @@ class Cases:
                                         else:
                                             self.logger.log(f'[{self.project["code"]}][Tests] Global field {custom_field["name"]} validation failed for value: {value}')
                                     else:
-                                        # For project-specific fields, use the old logic
-                                        qase_values = [str(int(v) + 1) for v in value]
-                                        data['custom_field'][str(custom_field['qase_id'])] = ','.join(qase_values)
-                                        self.logger.log(f'[{self.project["code"]}][Tests] Set project-specific multiselect field {custom_field["name"]} to values: {",".join(qase_values)}')
+                                        # For project-specific fields, use proper mapping
+                                        qase_values = []
+                                        for v in value:
+                                            testrail_key = str(v)
+                                            if custom_field.get('tr_key_to_qase_id') and testrail_key in custom_field['tr_key_to_qase_id']:
+                                                qase_id = custom_field['tr_key_to_qase_id'][testrail_key]
+                                                qase_values.append(str(qase_id))
+                                                self.logger.log(f'[{self.project["code"]}][Tests] Using tr_key_to_qase_id mapping for project-specific field {custom_field["name"]}: {testrail_key} -> {qase_id}')
+                                            elif custom_field.get('qase_values') and testrail_key in custom_field['qase_values']:
+                                                qase_id = custom_field['qase_values'][testrail_key]
+                                                qase_values.append(str(qase_id))
+                                                self.logger.log(f'[{self.project["code"]}][Tests] Using qase_values fallback for project-specific field {custom_field["name"]}: {testrail_key} -> {qase_id}')
+                                            else:
+                                                self.logger.log(f'[{self.project["code"]}][Tests] Warning: TestRail value {v} not found in mapping for project-specific field {custom_field["name"]}', 'warning')
+                                        
+                                        if qase_values:
+                                            data['custom_field'][str(custom_field['qase_id'])] = ','.join(qase_values)
+                                            self.logger.log(f'[{self.project["code"]}][Tests] Set project-specific multiselect field {custom_field["name"]} to values: {",".join(qase_values)}')
+                                        else:
+                                            self.logger.log(f'[{self.project["code"]}][Tests] No valid Qase IDs found for project-specific field {custom_field["name"]}', 'warning')
                                 else:  # single select (type_id = 6)
-                                    # For single select, take first value only
-                                    data['custom_field'][str(custom_field['qase_id'])] = str(int(value[0]) + 1)
-                                    self.logger.log(f'[{self.project["code"]}][Tests] Set single select field {custom_field["name"]} to value: {str(int(value[0]) + 1)}')
+                                    # For single select, use proper mapping
+                                    testrail_key = str(value[0])
+                                    qase_value = None
+                                    
+                                    if custom_field.get('tr_key_to_qase_id') and testrail_key in custom_field['tr_key_to_qase_id']:
+                                        qase_value = custom_field['tr_key_to_qase_id'][testrail_key]
+                                        self.logger.log(f'[{self.project["code"]}][Tests] Using tr_key_to_qase_id mapping for project-specific single select field {custom_field["name"]}: {testrail_key} -> {qase_value}')
+                                    elif custom_field.get('qase_values') and testrail_key in custom_field['qase_values']:
+                                        qase_value = custom_field['qase_values'][testrail_key]
+                                        self.logger.log(f'[{self.project["code"]}][Tests] Using qase_values fallback for project-specific single select field {custom_field["name"]}: {testrail_key} -> {qase_value}')
+                                    else:
+                                        self.logger.log(f'[{self.project["code"]}][Tests] Warning: No Qase mapping found for TestRail value {testrail_key} in project-specific field {custom_field["name"]}', 'warning')
+                                        continue
+                                    
+                                    if qase_value is not None:
+                                        data['custom_field'][str(custom_field['qase_id'])] = str(qase_value)
+                                        self.logger.log(f'[{self.project["code"]}][Tests] Set project-specific single select field {custom_field["name"]} to value: {str(qase_value)}')
 
                         else:
                             self.logger.log(f'[{self.project["code"]}][Tests] Global field {custom_field["name"]} validation failed for value: {value}')
