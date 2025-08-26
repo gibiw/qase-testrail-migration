@@ -189,26 +189,25 @@ class QaseService:
                 values = self.__split_values(config['options']['items'])
                 field['qase_values'] = {}
                 
-                # Use a set to track unique values and avoid duplicates
-                unique_values = set()
-                next_id = 1
+                self.logger.log(f'[Qase] DEBUG: Raw items string: {config["options"]["items"]}')
+                self.logger.log(f'[Qase] DEBUG: Parsed values: {values}')
                 
+                # Create Qase values for each TestRail ID
                 for key, value in values.items():
                     value_stripped = value.strip()
-                    if value_stripped not in unique_values:
-                        unique_values.add(value_stripped)
+                    if value_stripped:
+                        # Use TestRail ID as Qase ID to maintain consistency
+                        qase_id = int(key)
                         data['value'].append(
                             CustomFieldCreateValueInner(
-                                id=next_id,
+                                id=qase_id,
                                 title=value_stripped,
                             ),
                         )
-                        field['qase_values'][next_id] = value_stripped
-                        next_id += 1
-                    else:
-                        self.logger.log(f'[Qase] Skipping duplicate value: {value_stripped}')
+                        field['qase_values'][qase_id] = value_stripped
+                        self.logger.log(f'[Qase] DEBUG: Created value: TestRail ID {key} -> Qase ID {qase_id} -> "{value_stripped}"')
                 
-                self.logger.log(f'[Qase] Field {field["label"]} has {len(unique_values)} unique values')
+                self.logger.log(f'[Qase] Field {field["label"]} has {len(values)} values')
             else:
                 self.logger.log(f'[Qase] Field {field["label"]} has no values to process')
         else:
@@ -224,7 +223,6 @@ class QaseService:
     def __split_values(string: str, delimiter: str = ',') -> dict:
         items = string.split('\n')  # split items into a list
         result = {}
-        seen_titles = set()  # Track seen titles to avoid duplicates
         
         for item in items:
             if item == '':
@@ -233,9 +231,8 @@ class QaseService:
             key, value = item.split(delimiter)
             # Trim the title and skip empty titles
             trimmed_value = value.strip()
-            if trimmed_value and trimmed_value not in seen_titles:
+            if trimmed_value:
                 result[key] = trimmed_value
-                seen_titles.add(trimmed_value)
         return result
 
     def get_projects(self, limit=100, offset=0):
