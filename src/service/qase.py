@@ -232,9 +232,16 @@ class QaseService:
                         )
                         field['qase_values'][qase_id] = value_stripped
                         self.logger.log(f'[Qase] DEBUG: Created value: TestRail ID {key} -> Qase ID {qase_id} -> "{value_stripped}"')
-                
-                self.logger.log(f'[Qase] Field {field["label"]} has {len(values)} values')
-                self.logger.log(f'[Qase] DEBUG: Final qase_values mapping: {field["qase_values"]}')
+                    
+                    # Create TestRail ID to Qase ID mapping
+                    field['tr_key_to_qase_id'] = {}
+                    for tr_key, tr_title in values.items():
+                        tr_key_int = int(tr_key)
+                        field['tr_key_to_qase_id'][tr_key_int] = tr_key_int
+                    
+                    self.logger.log(f'[Qase] Field {field["label"]} has {len(values)} values')
+                    self.logger.log(f'[Qase] DEBUG: Final qase_values mapping: {field["qase_values"]}')
+                    self.logger.log(f'[Qase] DEBUG: Final tr_key_to_qase_id mapping: {field["tr_key_to_qase_id"]}')
             else:
                 self.logger.log(f'[Qase] Field {field["label"]} has no values to process')
         else:
@@ -942,7 +949,24 @@ class QaseService:
             if 'needs_mapping_update' in update_data:
                 self.logger.log(f'[Qase] Field {field_id} needs mapping update - this should be handled by the calling code')
                 # This is a special case - we need to update the field's qase_values mapping
-                # For now, we'll just log this and handle it in the calling code
+                
+                # Create qase_values mapping from existing field values
+                if hasattr(existing_field, 'value') and existing_field.value:
+                    field['qase_values'] = {}
+                    field['tr_key_to_qase_id'] = {}
+                    
+                    for value in existing_field.value:
+                        if hasattr(value, 'id') and hasattr(value, 'title'):
+                            field['qase_values'][value.id] = value.title
+                            # For project-specific fields, assume TestRail ID = Qase ID
+                            field['tr_key_to_qase_id'][value.id] = value.id
+                        elif isinstance(value, dict) and 'id' in value and 'title' in value:
+                            field['qase_values'][value['id']] = value['title']
+                            # For project-specific fields, assume TestRail ID = Qase ID
+                            field['tr_key_to_qase_id'][value['id']] = value['id']
+                    
+                    self.logger.log(f'[Qase] Created qase_values mapping: {field["qase_values"]}')
+                    self.logger.log(f'[Qase] Created tr_key_to_qase_id mapping: {field["tr_key_to_qase_id"]}')
             
             # Handle missing projects
             if 'missing_projects' in update_data:
