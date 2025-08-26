@@ -44,13 +44,30 @@ class Runs:
         self.logger.log(
             f'[{self.project["code"]}][Runs] Found {str(len(self.index))} runs')
         self.index.sort(key=lambda x: x['created_on'])
+        
+        # For projects with many runs, limit concurrent tasks to avoid overwhelming the system
+        max_concurrent_tasks = 10 if len(self.index) > 1000 else 50
+        
         i = 0
-        async with asyncio.TaskGroup() as tg:
-            for run in self.index:
-                i += 1
-                self.logger.print_status(
-                    f'[{self.project["code"]}] Importing runs', i, len(self.index), 1)
-                tg.create_task(self._import_run(run))
+        # Process runs in batches to avoid overwhelming the system
+        for batch_start in range(0, len(self.index), max_concurrent_tasks):
+            batch_end = min(batch_start + max_concurrent_tasks, len(self.index))
+            batch = self.index[batch_start:batch_end]
+            
+            self.logger.log(
+                f'[{self.project["code"]}][Runs] Processing batch {batch_start//max_concurrent_tasks + 1}/{(len(self.index) + max_concurrent_tasks - 1)//max_concurrent_tasks} ({len(batch)} runs)')
+            
+            async with asyncio.TaskGroup() as tg:
+                for run in batch:
+                    i += 1
+                    self.logger.print_status(
+                        f'[{self.project["code"]}] Importing runs', i, len(self.index), 1)
+                    tg.create_task(self._import_run(run))
+            
+            # Small delay between batches to avoid overwhelming the system
+            if batch_end < len(self.index):
+                await asyncio.sleep(0.1)
+        
         self.logger.log(
             f'[{self.project["code"]}][Runs] Test Run imported completed')
         return
@@ -176,6 +193,9 @@ class Runs:
 
     async def _import_run(self, run: list) -> None:
         try:
+            self.logger.log(
+                f'[{self.project["code"]}][Runs] Starting import of run {run["name"]} [{run["id"]}]')
+            
             # Load testrail tests from the run ()
             cases_map = await self.__get_cases_for_run(run)
             self.logger.log(
@@ -204,6 +224,8 @@ class Runs:
                     self.project['code'], 'runs', 'qase')
                 # Import results for the run
                 await self._import_results_for_run(run, qase_run_id, cases_map)
+                self.logger.log(
+                    f'[{self.project["code"]}][Runs] Completed import of run {run["name"]} [{run["id"]}]')
             else:
                 self.logger.log(
                     f'[{self.project["code"]}][Runs] Failed to create a new run in Qase for TestRail run {run["name"]} [{run["id"]}]', 'error')
@@ -347,6 +369,10 @@ class Runs:
             self.logger.log(
                 f'[{self.project["code"]}][Runs][STATUS] === END DETAILED STATUS LOGGING FOR RUN {run_index} ===')
 
+        # Log progress for all runs, not just every 10th
+        self.logger.log(
+            f'[{self.project["code"]}][Runs] Completed import of results for run {run["name"]} [{run["id"]}] - {len(run_results)} results processed')
+
         return
 
     @staticmethod
@@ -433,17 +459,22 @@ class Runs:
                 self.logger.log(
                     f'[{self.project["code"]}][Runs][STATUS] Sample result {i+1}: test_id={result.get("test_id")}, status_id={result.get("status_id")}, comment_length={len(str(result.get("comment", "")))}')
 
-        await self.pools.qs(
-            self.qase.send_bulk_results,
-            tr_run,
-            results,
-            qase_run_id,
-            self.project['code'],
-            self.mappings,
-            cases_map,
-        )
-        self.logger.log(
-            f'[{self.project["code"]}][Runs] Imported {str(len(results))} results for the run {tr_run["name"]} [{tr_run["id"]}]')
+        try:
+            await self.pools.qs(
+                self.qase.send_bulk_results,
+                tr_run,
+                results,
+                qase_run_id,
+                self.project['code'],
+                self.mappings,
+                cases_map,
+            )
+            self.logger.log(
+                f'[{self.project["code"]}][Runs] Successfully imported {str(len(results))} results for the run {tr_run["name"]} [{tr_run["id"]}]')
+        except Exception as e:
+            self.logger.log(
+                f'[{self.project["code"]}][Runs] ERROR importing {str(len(results))} results for the run {tr_run["name"]} [{tr_run["id"]}]: {e}', 'error')
+            raise
 
     @staticmethod
     def _merge_comments_with_same_test_id(test_results):
