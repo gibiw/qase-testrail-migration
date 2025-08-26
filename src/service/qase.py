@@ -581,9 +581,21 @@ class QaseService:
         update_data = {}
         
         self.logger.log(f'[Qase] DEBUG: ===== STARTING FIELD UPDATE CHECK =====')
+        self.logger.log(f'[Qase] DEBUG: Field parameter type: {type(field)}')
+        self.logger.log(f'[Qase] DEBUG: Field parameter: {field}')
         self.logger.log(f'[Qase] DEBUG: Field: {field["label"]} (type_id: {field["type_id"]})')
         self.logger.log(f'[Qase] DEBUG: Field has qase_values: {bool(field.get("qase_values"))}')
         self.logger.log(f'[Qase] DEBUG: Field configs count: {len(field.get("configs", []))}')
+        
+        # Log complete field structure
+        self.logger.log(f'[Qase] DEBUG: ===== COMPLETE FIELD STRUCTURE =====')
+        self.logger.log(f'[Qase] DEBUG: Field keys: {list(field.keys()) if isinstance(field, dict) else "Not a dict"}')
+        for key, value in field.items():
+            if key == 'configs':
+                # Skip configs as they will be logged separately
+                continue
+            self.logger.log(f'[Qase] DEBUG: Field {key}: {value}')
+        self.logger.log(f'[Qase] DEBUG: ===== END COMPLETE FIELD STRUCTURE =====')
         
         # Log existing field details
         self.logger.log(f'[Qase] DEBUG: Existing field ID: {getattr(existing_field, "id", "N/A")}')
@@ -640,10 +652,36 @@ class QaseService:
         expected_projects = set()
         
         if field.get('configs') and len(field['configs']) > 0:
+            self.logger.log(f'[Qase] DEBUG: ===== FIELD CONFIGURATIONS DETAILS =====')
+            self.logger.log(f'[Qase] DEBUG: Total configs count: {len(field["configs"])}')
+            
+            for i, config in enumerate(field['configs']):
+                self.logger.log(f'[Qase] DEBUG: Config {i+1}:')
+                self.logger.log(f'[Qase] DEBUG:   Raw config: {config}')
+                self.logger.log(f'[Qase] DEBUG:   Config keys: {list(config.keys()) if isinstance(config, dict) else "Not a dict"}')
+                
+                if isinstance(config, dict):
+                    # Log all config fields
+                    for key, value in config.items():
+                        self.logger.log(f'[Qase] DEBUG:     {key}: {value}')
+                    
+                    # Log context details
+                    context = config.get('context', {})
+                    self.logger.log(f'[Qase] DEBUG:   Context: {context}')
+                    if isinstance(context, dict):
+                        self.logger.log(f'[Qase] DEBUG:     Context keys: {list(context.keys())}')
+                        for ctx_key, ctx_value in context.items():
+                            self.logger.log(f'[Qase] DEBUG:       {ctx_key}: {ctx_value}')
+                else:
+                    self.logger.log(f'[Qase] DEBUG:   Config is not a dict: {type(config)}')
+            
+            # Use first config for processing
             config = field['configs'][0]
-            self.logger.log(f'[Qase] DEBUG: Field config context: {config.get("context", {})}')
-            self.logger.log(f'[Qase] DEBUG: Field config is_global: {config.get("context", {}).get("is_global", False)}')
-            self.logger.log(f'[Qase] DEBUG: Field config project_ids: {config.get("context", {}).get("project_ids", [])}')
+            self.logger.log(f'[Qase] DEBUG: Using first config for processing:')
+            self.logger.log(f'[Qase] DEBUG:   Config context: {config.get("context", {})}')
+            self.logger.log(f'[Qase] DEBUG:   Config is_global: {config.get("context", {}).get("is_global", False)}')
+            self.logger.log(f'[Qase] DEBUG:   Config project_ids: {config.get("context", {}).get("project_ids", [])}')
+            self.logger.log(f'[Qase] DEBUG: ===== END FIELD CONFIGURATIONS DETAILS =====')
             
             if not config.get('context', {}).get('is_global', False):
                 self.logger.log(f'[Qase] DEBUG: Field is not global, checking project associations')
@@ -664,9 +702,36 @@ class QaseService:
                 self.logger.log(f'[Qase] DEBUG: Field is global, skipping project association check')
         else:
             self.logger.log(f'[Qase] DEBUG: No configs found for field')
+            self.logger.log(f'[Qase] DEBUG: Field structure without configs: {field}')
         
         self.logger.log(f'[Qase] DEBUG: Expected projects: {expected_projects}')
         self.logger.log(f'[Qase] DEBUG: Existing projects: {existing_projects}')
+        
+        # Log mappings structure
+        self.logger.log(f'[Qase] DEBUG: ===== MAPPINGS STRUCTURE =====')
+        if mappings:
+            self.logger.log(f'[Qase] DEBUG: Mappings type: {type(mappings)}')
+            self.logger.log(f'[Qase] DEBUG: Mappings attributes: {[attr for attr in dir(mappings) if not attr.startswith("_")]}')
+            
+            if hasattr(mappings, 'project_map'):
+                self.logger.log(f'[Qase] DEBUG: Project map type: {type(mappings.project_map)}')
+                self.logger.log(f'[Qase] DEBUG: Project map keys: {list(mappings.project_map.keys())}')
+                self.logger.log(f'[Qase] DEBUG: Project map values: {list(mappings.project_map.values())}')
+                
+                # Log first few project mappings in detail
+                for i, (key, value) in enumerate(list(mappings.project_map.items())[:3]):
+                    self.logger.log(f'[Qase] DEBUG: Project mapping {i+1}: {key} -> {value}')
+            else:
+                self.logger.log(f'[Qase] DEBUG: No project_map attribute found in mappings')
+            
+            # Check for current_project_code
+            if hasattr(mappings, 'current_project_code'):
+                self.logger.log(f'[Qase] DEBUG: Current project code: {mappings.current_project_code}')
+            else:
+                self.logger.log(f'[Qase] DEBUG: No current_project_code attribute found')
+        else:
+            self.logger.log(f'[Qase] DEBUG: Mappings is None')
+        self.logger.log(f'[Qase] DEBUG: ===== END MAPPINGS STRUCTURE =====')
         
         # Always add current project if field should be project-specific
         if expected_projects:
@@ -689,7 +754,29 @@ class QaseService:
             else:
                 self.logger.log(f'[Qase] DEBUG: Field is already project-specific')
         else:
-            self.logger.log(f'[Qase] DEBUG: No expected projects found for this field')
+            # If no expected projects found from config, but field should be project-specific,
+            # add the current project being migrated
+            if not config.get('context', {}).get('is_global', False):
+                self.logger.log(f'[Qase] DEBUG: No expected projects found from config, but field should be project-specific')
+                self.logger.log(f'[Qase] DEBUG: Adding current project to field')
+                
+                # Get current project from mappings (assuming it's the one being migrated)
+                current_project = None
+                if mappings and hasattr(mappings, 'current_project_code'):
+                    current_project = mappings.current_project_code
+                elif mappings and hasattr(mappings, 'project_map') and len(mappings.project_map) > 0:
+                    # Use the first available project as current
+                    current_project = list(mappings.project_map.values())[0]
+                
+                if current_project and current_project not in existing_projects:
+                    self.logger.log(f'[Qase] DEBUG: Adding current project {current_project} to field')
+                    needs_update = True
+                    update_data['missing_projects'] = [current_project]
+                    self.logger.log(f'[Qase] Field {field["label"]} missing current project: {current_project}')
+                else:
+                    self.logger.log(f'[Qase] DEBUG: Current project {current_project} already in existing projects or not found')
+            else:
+                self.logger.log(f'[Qase] DEBUG: No expected projects found for this field')
         
         self.logger.log(f'[Qase] DEBUG: Final result for {field["label"]}: needs_update={needs_update}, update_data={update_data}')
         self.logger.log(f'[Qase] DEBUG: ===== ENDING FIELD UPDATE CHECK =====')
