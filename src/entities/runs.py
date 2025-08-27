@@ -220,6 +220,10 @@ class Runs:
                 i += 1
                 self.logger.log(f'[{self.project["code"]}][Runs] Importing results [Chunk {i}] for the run {run["name"]} [{run["id"]}]')
                 tg.create_task(self._import_results(run, qase_run_id, cases_map, chunk))
+
+        if run['is_completed']:
+            await self.pools.tr(self.qase.complete_run, self.project['code'], qase_run_id)
+                    
         return 
 
     @staticmethod
