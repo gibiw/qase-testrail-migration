@@ -2,6 +2,7 @@ from ..support import ConfigManager, Logger
 
 import certifi
 import json
+import time
 
 from qaseio.api_client import ApiClient
 from qaseio.configuration import Configuration
@@ -360,6 +361,10 @@ class QaseService:
         if cases and len(cases) > 0:
             data['cases'] = cases
 
+        # Add delay to avoid API rate limiting
+        self.logger.log(f"Adding 2 second delay before creating run '{run['name']}' to avoid rate limiting...")
+        time.sleep(2)
+
         try:
             response = api_instance.create_run(
                 code=project_code, run_create=RunCreate(**data))
@@ -437,6 +442,11 @@ class QaseService:
             if len(res) > 0:
                 api_results = ResultsApi(self.client)
                 self.logger.log(f'Sending {len(res)} results to Qase')
+                
+                # Add delay to avoid API rate limiting
+                self.logger.log('Adding 2 second delay before API call to avoid rate limiting...')
+                time.sleep(2)
+                
                 try:
                     api_results.create_result_bulk(
                         code=qase_code,

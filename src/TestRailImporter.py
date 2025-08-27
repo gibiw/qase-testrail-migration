@@ -140,3 +140,5 @@ class TestRailImporter:
             project,
             self.pools,
         ).import_runs()
+
+        self.logger.log(f'[{project["name"]}]Imported project data is completed')
