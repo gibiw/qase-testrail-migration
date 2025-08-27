@@ -459,9 +459,24 @@ class Cases:
                             return None
                     else:
                         # Handle non-dropdown fields (text, number, etc.)
-                        data['custom_field'][str(custom_field['qase_id'])] = self.__format_links_as_markdown(str(
-                            self.attachments.check_and_replace_attachments(case[field_name], self.project['code'])))
-                        self.logger.log(f'[{self.project["code"]}][Tests] Set global field {custom_field["name"]} to text value')
+                        field_value = str(
+                            self.attachments.check_and_replace_attachments(
+                                case[field_name], self.project['code'])
+                        )
+                        
+                        # Check if this custom field is a URL type in Qase
+                        if self._is_url_field(custom_field['qase_id']):
+                            # For URL fields, extract plain URL from markdown if needed
+                            plain_url = self._extract_url_from_markdown(field_value)
+                            data['custom_field'][str(custom_field['qase_id'])] = plain_url
+                            self.logger.log(
+                                f'[{self.project["code"]}][Tests] Global field {custom_field["name"]} (ID: {custom_field["qase_id"]}) - URL type: original={case[field_name]} -> processed={field_value} -> result={plain_url}', 'info')
+                        else:
+                            # For non-URL fields, apply markdown formatting
+                            formatted_value = self.__format_links_as_markdown(field_value)
+                            data['custom_field'][str(custom_field['qase_id'])] = formatted_value
+                            self.logger.log(
+                                f'[{self.project["code"]}][Tests] Global field {custom_field["name"]} (ID: {custom_field["qase_id"]}) - {custom_field["type_id"]} type: original={case[field_name]} -> processed={field_value} -> result={formatted_value}', 'info')
 
                 else:
                     self.logger.log(f'[{self.project["code"]}][Tests] DEBUG: Field {normalized_name} not found in mappings')
