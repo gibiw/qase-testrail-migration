@@ -32,9 +32,15 @@ class Pools:
         return functools.reduce(lambda x, y: x + y, [_ async for _ in Pools.async_gen(pool, fn, *args, **kwargs)])
 
     def tr(self, fn, *args, **kwargs):
+        # Check if pool is shutdown before submitting
+        if self.tr_pool._shutdown:
+            raise RuntimeError("ThreadPool is shutdown and cannot accept new tasks")
         return asyncio.wrap_future(self.tr_pool.submit(fn, *args, **kwargs))
 
     def qs(self, fn, *args, **kwargs):
+        # Check if pool is shutdown before submitting
+        if self.qase_pool._shutdown:
+            raise RuntimeError("QasePool is shutdown and cannot accept new tasks")
         return asyncio.wrap_future(self.qase_pool.submit(fn, *args, **kwargs))
 
     async def tr_task(self, fn, *args, **kwargs):
@@ -54,3 +60,11 @@ class Pools:
 
     async def qs_gen_all(self, fn, *args, **kwargs):
         return await self.async_gen_all(self.qase_pool, fn, *args, **kwargs)
+
+    def is_tr_pool_available(self) -> bool:
+        """Check if TestRail thread pool is available and not shutdown"""
+        return not self.tr_pool._shutdown
+
+    def is_qase_pool_available(self) -> bool:
+        """Check if Qase thread pool is available and not shutdown"""
+        return not self.qase_pool._shutdown
