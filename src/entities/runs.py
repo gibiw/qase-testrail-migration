@@ -1,4 +1,5 @@
 import asyncio
+import math
 
 from ..service import QaseService, TestrailService
 from ..support import Logger, Mappings, ConfigManager as Config, Pools
@@ -26,7 +27,7 @@ class Runs:
         self.pools = pools
 
         self.attachments = Attachments(self.qase, self.testrail, self.logger, self.mappings, self.config, self.pools)
-        
+
         self.configurations = self.mappings.configurations[self.project['code']]
 
         self.created_after = self.config.get('runs.created_after')
@@ -47,8 +48,6 @@ class Runs:
                 i += 1
                 self.logger.print_status(f'[{self.project["code"]}] Importing runs', i, len(self.index), 1)
                 tg.create_task(self._import_run(run))
-        self.logger.log(f'[{self.project["code"]}][Runs] Test Run imported completed')
-        return
 
     async def _build_index(self) -> None:
         self.logger.log(f'[{self.project["code"]}][Runs] Building index for project {self.project["name"]}')
@@ -71,24 +70,8 @@ class Runs:
         while True:
             data['offset'] = offset
             runs = await self.pools.tr(self.testrail.get_runs, **data)
-            self.logger.log(f'[{self.project["code"]}][Runs] Found {str(len(runs))} runs in TestRail')
-            for run in runs:
-                # Basic validation of run data
-                if not run.get('name') or not run.get('created_on'):
-                    self.logger.log(f'[{self.project["code"]}][Runs] Skipping run {run.get("id", "unknown")} - missing required fields', 'warning')
-                    continue
-                    
-                # Skip runs with problematic names
-                run_name = run['name'].strip()
-                if not run_name or run_name.lower() in ['demo', 'demo , will be removed', 'master']:
-                    self.logger.log(f'[{self.project["code"]}][Runs] Skipping run "{run_name}" [{run["id"]}] - problematic name', 'warning')
-                    continue
-                    
-                # Skip incomplete TA AN runs
-                if run_name.startswith('TA AN:') and len(run_name) < 10:
-                    self.logger.log(f'[{self.project["code"]}][Runs] Skipping run "{run_name}" [{run["id"]}] - incomplete TA AN run name', 'warning')
-                    continue
-                
+            self.logger.log(f'[{self.project["code"]}][Runs] Found {str(len(runs["runs"]))} runs in TestRail')
+            for run in runs['runs']:
                 self.index.append({
                     'id': run['id'],
                     'name': run['name'],
@@ -101,7 +84,7 @@ class Runs:
                     'author_id': self.mappings.get_user_id(run['created_by']),
                 })
 
-            if len(runs) < limit or len(runs) > limit:
+            if runs['size'] < limit:
                 break
 
             offset = offset + limit
@@ -115,28 +98,12 @@ class Runs:
         while True:
             self.logger.log(f'[{self.project["code"]}][Runs] Fetching plans from TestRail')
             plans = await self.pools.tr(self.testrail.get_plans, self.project['testrail_id'], limit, offset)
-            for plan in plans:
+            for plan in plans['plans']:
                 plan = self.testrail.get_plan(plan['id'])
                 if plan is not None and 'entries' in plan and plan['entries'] and len(plan['entries']) > 0:
                     self.logger.log(f'[{self.project["code"]}][Runs] Fetching runs for plan {plan["id"]}')
                     for entry in plan['entries']:
                         for run in entry['runs']:
-                            # Basic validation of run data
-                            if not run.get('name') or not run.get('created_on'):
-                                self.logger.log(f'[{self.project["code"]}][Runs] Skipping plan run {run.get("id", "unknown")} - missing required fields', 'warning')
-                                continue
-                                
-                            # Skip runs with problematic names
-                            run_name = run['name'].strip()
-                            if not run_name or run_name.lower() in ['demo', 'demo , will be removed', 'master']:
-                                self.logger.log(f'[{self.project["code"]}][Runs] Skipping plan run "{run_name}" [{run["id"]}] - problematic name', 'warning')
-                                continue
-                                
-                            # Skip incomplete TA AN runs
-                            if run_name.startswith('TA AN:') and len(run_name) < 10:
-                                self.logger.log(f'[{self.project["code"]}][Runs] Skipping plan run "{run_name}" [{run["id"]}] - incomplete TA AN run name', 'warning')
-                                continue
-                            
                             self.index.append({
                                 'id': run['id'],
                                 'name': run['name'],
@@ -150,41 +117,28 @@ class Runs:
                                 'milestone_id': run['milestone_id'],
                                 'author_id': self.mappings.get_user_id(run['created_by']),
                             })
-            if len(plans) < limit:
+            if plans['size'] < limit:
                 break
 
             offset = offset + limit
         self.logger.log(f'[{self.project["code"]}][Runs] Items in index: {str(len(self.index))}')
 
     async def _import_run(self, run: list) -> None:
-        try:
-            # Load testrail tests from the run ()
-            cases_map = await self.__get_cases_for_run(run)
-            self.logger.log(f'[{self.project["code"]}][Runs] Found {str(len(cases_map))} cases in the run {run["name"]} [{run["id"]}]')
+        # Load testrail tests from the run ()
+        cases_map = await self.__get_cases_for_run(run)
+        self.logger.log(
+            f'[{self.project["code"]}][Runs] Found {str(len(cases_map))} cases in the run {run["name"]} [{run["id"]}]')
 
-            # Skip runs with no cases to prevent "No cases" API errors
-            if not cases_map or len(cases_map) == 0:
-                self.logger.log(f'[{self.project["code"]}][Runs] Skipping run {run["name"]} [{run["id"]}] - no cases found', 'warning')
-                return
+        milestone_id = self.mappings.milestones[self.project['code']][run['milestone_id']] if run['milestone_id'] in \
+                                                                                              self.mappings.milestones[
+                                                                                                  self.project[
+                                                                                                      'code']] else None
 
-            milestone_id = self.mappings.milestones[self.project['code']][run['milestone_id']] if run['milestone_id'] in self.mappings.milestones[self.project['code']] else None
+        if run['config_ids'] is not None and len(run['config_ids']) > 0:
+            run['configurations'] = self._replace_config_ids(run['config_ids'])
 
-            if run['config_ids'] is not None and len(run['config_ids']) > 0:
-                run['configurations'] = self._replace_config_ids(run['config_ids'])
-
-            # Create a new test run in Qase
-            qase_run_id = await self.pools.qs(self.qase.create_run, run, self.project['code'], list(cases_map.values()), milestone_id)
-
-            if (qase_run_id):
-                self.logger.log(f'[{self.project["code"]}][Runs] Created a new run in Qase: {qase_run_id}')
-                self.mappings.stats.add_entity_count(self.project['code'], 'runs', 'qase')
-                # Import results for the run
-                await self._import_results_for_run(run, qase_run_id, cases_map)
-            else:
-                self.logger.log(f'[{self.project["code"]}][Runs] Failed to create a new run in Qase for TestRail run {run["name"]} [{run["id"]}]', 'error')
-        except Exception as e:
-            self.logger.log(f'[{self.project["code"]}][Runs] Exception during import of run {run["name"]} [{run["id"]}]: {e}', 'error')
-        return
+            # Import results for the run
+        await self._import_results_for_run(run, cases_map, milestone_id)
 
     def _replace_config_ids(self, config_ids: list) -> list:
         configs = []
@@ -193,7 +147,7 @@ class Runs:
                 configs.append(self.configurations[config_id])
         return configs
 
-    async def _import_results_for_run(self, run: list, qase_run_id: str, cases_map: dict) -> None:
+    async def _import_results_for_run(self, run: list, cases_map: dict, milestone_id: int) -> None:
         limit = 250
         offset = 0
         run_results = []
@@ -201,29 +155,53 @@ class Runs:
         while True:
             self.logger.log(f'[{self.project["code"]}][Runs] Fetching results for the run {run["name"]} [{run["id"]}]')
             results = await self.pools.tr(self.testrail.get_results, run['id'], limit, offset)
-            run_results = run_results + self._clean_results(results)
+            run_results = run_results + self._clean_results(results['results'])
             offset = offset + limit
-            if len(results) < limit:
+            if results['size'] < limit:
                 break
 
-        self.logger.log(f'[{self.project["code"]}][Runs] Found {str(len(run_results))} results for the run {run["name"]} [{run["id"]}]')
+        # Create a new test run in Qase
+        run["created_on"] = max(0, min(
+            [result["created_on"] if "created_on" in result and bool(result["created_on"]) else math.nan for result in
+             run_results]
+            + [run["created_on"] if bool(run["created_on"]) else math.nan],
+            key=lambda x: (math.isnan(x), x)
+        ))
+
+        qase_run_id = await self.pools.qs(self.qase.create_run, run, self.project['code'], list(cases_map.values()),
+                                          milestone_id)
+
+        if not bool(qase_run_id):
+            self.logger.log(
+                f'[{self.project["code"]}][Runs] Failed to create a new run in Qase for TestRail run {run["name"]} [{run["id"]}]',
+                'error')
+            return
+
+        self.logger.log(f'[{self.project["code"]}][Runs] Created a new run in Qase: {qase_run_id}')
+        self.mappings.stats.add_entity_count(self.project['code'], 'runs', 'qase')
+
+        self.logger.log(
+            f'[{self.project["code"]}][Runs] Found {str(len(run_results))} results for the run {run["name"]} [{run["id"]}]')
 
         self.logger.log(f'[{self.project["code"]}][Runs] Merging comments for the run {run["name"]} [{run["id"]}]')
         run_results = self._merge_comments(run_results)
 
         self.logger.log(f'[{self.project["code"]}][Runs] Sorting results for the run {run["name"]} [{run["id"]}]')
         run_results = sorted(run_results, key=lambda x: x['created_on'])
-        
+
         i = 0
         async with asyncio.TaskGroup() as tg:
             for chunk in self._chunk_list_generator(run_results, 500):
                 i += 1
-                self.logger.log(f'[{self.project["code"]}][Runs] Importing results [Chunk {i}] for the run {run["name"]} [{run["id"]}]')
+                self.logger.log(
+                    f'[{self.project["code"]}][Runs] Importing results [Chunk {i}] for the run {run["name"]} [{run["id"]}]')
                 tg.create_task(self._import_results(run, qase_run_id, cases_map, chunk))
-        return 
+
+        if run['is_completed']:
+            await self.pools.tr(self.qase.complete_run, self.project['code'], qase_run_id)
 
     @staticmethod
-    def _chunk_list_generator(results, chunk_size = 500):
+    def _chunk_list_generator(results, chunk_size=500):
         """Yield successive chunks from input_list."""
         for i in range(0, len(results), chunk_size):
             yield results[i:i + chunk_size]
@@ -233,7 +211,8 @@ class Runs:
         for result in results:
             if result['status_id'] != 3:
                 if len(result['attachment_ids']) > 0:
-                    result['attachments'] = self.attachments.check_and_replace_attachments_array(result['attachment_ids'], self.project['code'])
+                    result['attachments'] = self.attachments.check_and_replace_attachments_array(
+                        result['attachment_ids'], self.project['code'])
                 del result['attachment_ids']
                 del result['version']
                 clean_results.append(result)
@@ -249,7 +228,7 @@ class Runs:
                 if result['test_id'] not in comments:
                     comments[result['test_id']] = []
                 comments[result['test_id']].append(result)
-            else: 
+            else:
                 cleaned.append(result)
 
         for result in cleaned:
@@ -282,8 +261,6 @@ class Runs:
             self.mappings,
             cases_map,
         )
-        self.logger.log(f'[{self.project["code"]}][Runs] Imported {str(len(results))} results for the run {tr_run["name"]} [{tr_run["id"]}]')
-
 
     @staticmethod
     def _merge_comments_with_same_test_id(test_results):
@@ -314,21 +291,17 @@ class Runs:
         return processed_results
 
     async def __get_cases_for_run(self, run: list) -> dict:
-        try:
-            cases_map = {}
-            limit = 250
-            offset = 0
-            process = True
+        cases_map = {}
+        limit = 250
+        offset = 0
+        process = True
 
-            while process:
-                tests = await self.pools.tr(self.testrail.get_tests, run['id'], limit, offset)
-                if len(tests) < limit:
-                    process = False
-                offset = offset + limit
-                for test in tests:
-                    if test.get('case_id') and test['case_id'] is not None:
-                        cases_map[test['id']] = test['case_id']
-            return cases_map
-        except Exception as e:
-            self.logger.log(f'[{self.project["code"]}][Runs] Exception getting cases for run {run["name"]} [{run["id"]}]: {e}', 'error')
-            return {}
+        while process:
+            tests = await self.pools.tr(self.testrail.get_tests, run['id'], limit, offset)
+            if tests['size'] < limit:
+                process = False
+            offset = offset + limit
+            for test in tests['tests']:
+                if test['case_id']:
+                    cases_map[test['id']] = test['case_id']
+        return cases_map
