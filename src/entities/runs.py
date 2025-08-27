@@ -59,13 +59,6 @@ class Runs:
 
     async def _build_runs_index(self) -> None:
         self.logger.log(f'[{self.project["code"]}][Runs] Building runs index')
-        
-        # Check if thread pool is available before proceeding
-        if not self.pools.is_tr_pool_available():
-            self.logger.log(f'[{self.project["code"]}][Runs] ThreadPool is not available for building runs index', 'error')
-            self.logger.log(f'[{self.project["code"]}][Runs] Cannot proceed with runs import', 'error')
-            return
-        
         limit = 250
         offset = 0
 
@@ -116,13 +109,6 @@ class Runs:
 
     async def _build_plans_index(self) -> None:
         self.logger.log(f'[{self.project["code"]}][Runs] Building plans index')
-        
-        # Check if thread pool is available before proceeding
-        if not self.pools.is_tr_pool_available():
-            self.logger.log(f'[{self.project["code"]}][Runs] ThreadPool is not available for building plans index', 'error')
-            self.logger.log(f'[{self.project["code"]}][Runs] Cannot proceed with plans import', 'error')
-            return
-        
         limit = 250
         offset = 0
 
@@ -332,12 +318,6 @@ class Runs:
         return processed_results
 
     async def __get_cases_for_run(self, run: list) -> dict:
-        # Check if thread pool is available before proceeding
-        if not self.pools.is_tr_pool_available():
-            self.logger.log(f'[{self.project["code"]}][Runs] ThreadPool is not available for run {run["name"]} [{run["id"]}]', 'error')
-            self.logger.log(f'[{self.project["code"]}][Runs] Skipping this run due to thread pool unavailability', 'warning')
-            return {}
-        
         try:
             cases_map = {}
             limit = 250
@@ -355,13 +335,4 @@ class Runs:
             return cases_map
         except Exception as e:
             self.logger.log(f'[{self.project["code"]}][Runs] Exception getting cases for run {run["name"]} [{run["id"]}]: {e}', 'error')
-            
-            # Log additional details about the error
-            if "cannot schedule new futures after shutdown" in str(e):
-                self.logger.log(f'[{self.project["code"]}][Runs] ThreadPool shutdown detected - this indicates a serious issue with the thread pool', 'error')
-                self.logger.log(f'[{self.project["code"]}][Runs] Attempting to continue with empty cases map for run {run["id"]}', 'warning')
-            elif "RuntimeError" in str(e):
-                self.logger.log(f'[{self.project["code"]}][Runs] Runtime error detected - this may be related to thread pool issues', 'error')
-            
-            # Return empty map to allow migration to continue
             return {}
