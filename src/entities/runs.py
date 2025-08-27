@@ -1,4 +1,5 @@
 import asyncio
+import re
 
 from ..service import QaseService, TestrailService
 from ..support import Logger, Mappings, ConfigManager as Config, Pools
@@ -213,6 +214,10 @@ class Runs:
             if run['config_ids'] is not None and len(run['config_ids']) > 0:
                 run['configurations'] = self._replace_config_ids(
                     run['config_ids'])
+
+            # Format description to convert GitLab links to hyperlinks
+            if run.get('description'):
+                run['description'] = self.__format_links_as_markdown(run['description'])
 
             # Create a new test run in Qase
             qase_run_id = await self.pools.qs(self.qase.create_run, run, self.project['code'], list(cases_map.values()), milestone_id)
@@ -527,3 +532,24 @@ class Runs:
             self.logger.log(
                 f'[{self.project["code"]}][Runs] Exception getting cases for run {run["name"]} [{run["id"]}]: {e}', 'error')
             return {}
+
+    @staticmethod
+    def __format_links_as_markdown(text):
+        if text is None:
+            return None
+
+        # Don't process if text is already empty
+        if not text.strip():
+            return text
+
+        # Check if text already contains markdown links to avoid double-processing
+        if re.search(r'\[.*?\]\(.*?\)', text):
+            # Text already contains markdown links, return as-is
+            return text
+
+        # Only convert plain URLs to markdown format if they're not already in markdown
+        # Use a more precise regex that doesn't match URLs already in markdown
+        url_pattern = re.compile(r'(?<!\]\()(?<!\])\b(http[s]?://[^\s\)]+)')
+        formatted_text = url_pattern.sub(r'[\1](\1)', text)
+
+        return formatted_text
