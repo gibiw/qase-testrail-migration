@@ -68,17 +68,17 @@ class TestRailImporter:
         ).import_fields()
 
         # Step 5. Import projects data in parallel
-        with ThreadPoolExecutor(max_workers=8) as executor:
-            futures = []
-            for project in self.mappings.projects:
-                # Submit each project import to the thread pool
-                future = executor.submit(self.import_project_data, project)
-                futures.append(future)
+        # Use the existing pools instead of creating new ones
+        futures = []
+        for project in self.mappings.projects:
+            # Submit each project import to the existing thread pool
+            future = self.pools.tr_pool.submit(self.import_project_data, project)
+            futures.append(future)
 
-            # Wait for all futures to complete
-            for future in futures:
-                # This will also re-raise any exceptions caught during execution of the callable
-                future.result()
+        # Wait for all futures to complete
+        for future in futures:
+            # This will also re-raise any exceptions caught during execution of the callable
+            future.result()
 
         self.mappings.stats.print()
         self.mappings.stats.save(str(self.config.get('prefix')))
