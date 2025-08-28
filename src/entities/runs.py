@@ -77,7 +77,7 @@ class Runs:
             data['offset'] = offset
             runs = await self.pools.tr(self.testrail.get_runs, **data)
             self.logger.log(
-                f'[{self.project["code"]}][Runs] Found {str(len(runs["runs"]))} runs in TestRail')
+                f'[{self.project["code"]}][Runs] Found {str(len(runs))} runs in TestRail')
             for run in runs:
                 self.index.append({
                     'id': run['id'],
@@ -345,3 +345,4 @@ class Runs:
                 if test.get('case_id') and test['case_id'] is not None:
                     cases_map[test['id']] = test['case_id']
         return cases_map
+
