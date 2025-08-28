@@ -26,7 +26,8 @@ class Runs:
         self.project = project
         self.pools = pools
 
-        self.attachments = Attachments(self.qase, self.testrail, self.logger, self.mappings, self.config, self.pools)
+        self.attachments = Attachments(
+            self.qase, self.testrail, self.logger, self.mappings, self.config, self.pools)
 
         self.configurations = self.mappings.configurations[self.project['code']]
 
@@ -38,23 +39,28 @@ class Runs:
         return asyncio.run(self.import_runs_async())
 
     async def import_runs_async(self) -> None:
-        self.logger.log(f'[{self.project["code"]}][Runs] Importing runs from TestRail project {self.project["name"]}')
+        self.logger.log(
+            f'[{self.project["code"]}][Runs] Importing runs from TestRail project {self.project["name"]}')
         await self._build_index()
-        self.logger.log(f'[{self.project["code"]}][Runs] Found {str(len(self.index))} runs')
+        self.logger.log(
+            f'[{self.project["code"]}][Runs] Found {str(len(self.index))} runs')
         self.index.sort(key=lambda x: x['created_on'])
         i = 0
         async with asyncio.TaskGroup() as tg:
             for run in self.index:
                 i += 1
-                self.logger.print_status(f'[{self.project["code"]}] Importing runs', i, len(self.index), 1)
+                self.logger.print_status(
+                    f'[{self.project["code"]}] Importing runs', i, len(self.index), 1)
                 tg.create_task(self._import_run(run))
 
     async def _build_index(self) -> None:
-        self.logger.log(f'[{self.project["code"]}][Runs] Building index for project {self.project["name"]}')
+        self.logger.log(
+            f'[{self.project["code"]}][Runs] Building index for project {self.project["name"]}')
         async with asyncio.TaskGroup() as tg:
             tg.create_task(self._build_runs_index())
             tg.create_task(self._build_plans_index())
-        self.mappings.stats.add_entity_count(self.project['code'], 'runs', 'testrail', len(self.index))
+        self.mappings.stats.add_entity_count(
+            self.project['code'], 'runs', 'testrail', len(self.index))
 
     async def _build_runs_index(self) -> None:
         self.logger.log(f'[{self.project["code"]}][Runs] Building runs index')
@@ -70,8 +76,9 @@ class Runs:
         while True:
             data['offset'] = offset
             runs = await self.pools.tr(self.testrail.get_runs, **data)
-            self.logger.log(f'[{self.project["code"]}][Runs] Found {str(len(runs["runs"]))} runs in TestRail')
-            for run in runs['runs']:
+            self.logger.log(
+                f'[{self.project["code"]}][Runs] Found {str(len(runs["runs"]))} runs in TestRail')
+            for run in runs:
                 self.index.append({
                     'id': run['id'],
                     'name': run['name'],
@@ -84,11 +91,12 @@ class Runs:
                     'author_id': self.mappings.get_user_id(run['created_by']),
                 })
 
-            if runs['size'] < limit:
+            if len(runs) < limit:
                 break
 
             offset = offset + limit
-        self.logger.log(f'[{self.project["code"]}][Runs] Items in index: {str(len(self.index))}')
+        self.logger.log(
+            f'[{self.project["code"]}][Runs] Items in index: {str(len(self.index))}')
 
     async def _build_plans_index(self) -> None:
         self.logger.log(f'[{self.project["code"]}][Runs] Building plans index')
@@ -96,14 +104,35 @@ class Runs:
         offset = 0
 
         while True:
-            self.logger.log(f'[{self.project["code"]}][Runs] Fetching plans from TestRail')
+            self.logger.log(
+                f'[{self.project["code"]}][Runs] Fetching plans from TestRail')
             plans = await self.pools.tr(self.testrail.get_plans, self.project['testrail_id'], limit, offset)
-            for plan in plans['plans']:
+            for plan in plans:
                 plan = self.testrail.get_plan(plan['id'])
                 if plan is not None and 'entries' in plan and plan['entries'] and len(plan['entries']) > 0:
-                    self.logger.log(f'[{self.project["code"]}][Runs] Fetching runs for plan {plan["id"]}')
+                    self.logger.log(
+                        f'[{self.project["code"]}][Runs] Fetching runs for plan {plan["id"]}')
                     for entry in plan['entries']:
                         for run in entry['runs']:
+                            # Basic validation of run data
+                            if not run.get('name') or not run.get('created_on'):
+                                self.logger.log(
+                                    f'[{self.project["code"]}][Runs] Skipping plan run {run.get("id", "unknown")} - missing required fields', 'warning')
+                                continue
+
+                            # Skip runs with problematic names
+                            run_name = run['name'].strip()
+                            if not run_name or run_name.lower() in ['demo', 'demo , will be removed', 'master']:
+                                self.logger.log(
+                                    f'[{self.project["code"]}][Runs] Skipping plan run "{run_name}" [{run["id"]}] - problematic name', 'warning')
+                                continue
+
+                            # Skip incomplete TA AN runs
+                            if run_name.startswith('TA AN:') and len(run_name) < 10:
+                                self.logger.log(
+                                    f'[{self.project["code"]}][Runs] Skipping plan run "{run_name}" [{run["id"]}] - incomplete TA AN run name', 'warning')
+                                continue
+
                             self.index.append({
                                 'id': run['id'],
                                 'name': run['name'],
@@ -117,11 +146,12 @@ class Runs:
                                 'milestone_id': run['milestone_id'],
                                 'author_id': self.mappings.get_user_id(run['created_by']),
                             })
-            if plans['size'] < limit:
+            if len(plans) < limit:
                 break
 
             offset = offset + limit
-        self.logger.log(f'[{self.project["code"]}][Runs] Items in index: {str(len(self.index))}')
+        self.logger.log(
+            f'[{self.project["code"]}][Runs] Items in index: {str(len(self.index))}')
 
     async def _import_run(self, run: list) -> None:
         # Load testrail tests from the run ()
@@ -130,9 +160,9 @@ class Runs:
             f'[{self.project["code"]}][Runs] Found {str(len(cases_map))} cases in the run {run["name"]} [{run["id"]}]')
 
         milestone_id = self.mappings.milestones[self.project['code']][run['milestone_id']] if run['milestone_id'] in \
-                                                                                              self.mappings.milestones[
-                                                                                                  self.project[
-                                                                                                      'code']] else None
+            self.mappings.milestones[
+            self.project[
+                'code']] else None
 
         if run['config_ids'] is not None and len(run['config_ids']) > 0:
             run['configurations'] = self._replace_config_ids(run['config_ids'])
@@ -153,11 +183,12 @@ class Runs:
         run_results = []
 
         while True:
-            self.logger.log(f'[{self.project["code"]}][Runs] Fetching results for the run {run["name"]} [{run["id"]}]')
+            self.logger.log(
+                f'[{self.project["code"]}][Runs] Fetching results for the run {run["name"]} [{run["id"]}]')
             results = await self.pools.tr(self.testrail.get_results, run['id'], limit, offset)
-            run_results = run_results + self._clean_results(results['results'])
+            run_results = run_results + self._clean_results(results)
             offset = offset + limit
-            if results['size'] < limit:
+            if len(results) < limit:
                 break
 
         # Create a new test run in Qase
@@ -177,16 +208,20 @@ class Runs:
                 'error')
             return
 
-        self.logger.log(f'[{self.project["code"]}][Runs] Created a new run in Qase: {qase_run_id}')
-        self.mappings.stats.add_entity_count(self.project['code'], 'runs', 'qase')
+        self.logger.log(
+            f'[{self.project["code"]}][Runs] Created a new run in Qase: {qase_run_id}')
+        self.mappings.stats.add_entity_count(
+            self.project['code'], 'runs', 'qase')
 
         self.logger.log(
             f'[{self.project["code"]}][Runs] Found {str(len(run_results))} results for the run {run["name"]} [{run["id"]}]')
 
-        self.logger.log(f'[{self.project["code"]}][Runs] Merging comments for the run {run["name"]} [{run["id"]}]')
+        self.logger.log(
+            f'[{self.project["code"]}][Runs] Merging comments for the run {run["name"]} [{run["id"]}]')
         run_results = self._merge_comments(run_results)
 
-        self.logger.log(f'[{self.project["code"]}][Runs] Sorting results for the run {run["name"]} [{run["id"]}]')
+        self.logger.log(
+            f'[{self.project["code"]}][Runs] Sorting results for the run {run["name"]} [{run["id"]}]')
         run_results = sorted(run_results, key=lambda x: x['created_on'])
 
         i = 0
@@ -195,7 +230,8 @@ class Runs:
                 i += 1
                 self.logger.log(
                     f'[{self.project["code"]}][Runs] Importing results [Chunk {i}] for the run {run["name"]} [{run["id"]}]')
-                tg.create_task(self._import_results(run, qase_run_id, cases_map, chunk))
+                tg.create_task(self._import_results(
+                    run, qase_run_id, cases_map, chunk))
 
         if run['is_completed']:
             await self.pools.tr(self.qase.complete_run, self.project['code'], qase_run_id)
@@ -239,7 +275,8 @@ class Runs:
                     if result['comment'] is None:
                         result['comment'] = additional_comment
                     else:
-                        result['comment'] = str(result['comment']) + additional_comment
+                        result['comment'] = str(
+                            result['comment']) + additional_comment
                     if 'attachments' in comment:
                         if 'attachments' not in result:
                             result['attachments'] = comment['attachments']
@@ -277,16 +314,19 @@ class Runs:
                 if test_id in test_id_to_index:
                     index = test_id_to_index[test_id]
                     # Merge the comment and attachments with the previous result
-                    comment_date = datetime.utcfromtimestamp(result['created_on']).strftime('%A, %d %B %Y %H:%M:%S')
+                    comment_date = datetime.utcfromtimestamp(
+                        result['created_on']).strftime('%A, %d %B %Y %H:%M:%S')
                     additional_comment = f"\n On {comment_date} a comment was added: \n {result['comment']}"
                     processed_results[index]['comment'] += additional_comment
                     if 'attachments' in result:
-                        processed_results[index].setdefault('attachments', []).extend(result['attachments'])
+                        processed_results[index].setdefault(
+                            'attachments', []).extend(result['attachments'])
                 # If the comment is not for a test_id that exists in processed_results, ignore it
             else:
                 # Add the non-comment result to the processed_results
                 processed_results.append(result)
-                test_id_to_index[result['test_id']] = len(processed_results) - 1
+                test_id_to_index[result['test_id']] = len(
+                    processed_results) - 1
 
         return processed_results
 
@@ -298,10 +338,10 @@ class Runs:
 
         while process:
             tests = await self.pools.tr(self.testrail.get_tests, run['id'], limit, offset)
-            if tests['size'] < limit:
+            if len(tests) < limit:
                 process = False
             offset = offset + limit
-            for test in tests['tests']:
-                if test['case_id']:
+            for test in tests:
+                if test.get('case_id') and test['case_id'] is not None:
                     cases_map[test['id']] = test['case_id']
         return cases_map
