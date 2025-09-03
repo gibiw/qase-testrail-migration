@@ -91,8 +91,8 @@ class Runs:
                     'author_id': self.mappings.get_user_id(run['created_by']),
                 })
 
-                if len(runs) < limit:
-                    break
+            if len(runs) < limit:
+                break
 
             offset = offset + limit
         self.logger.log(
