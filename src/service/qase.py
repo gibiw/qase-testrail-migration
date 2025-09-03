@@ -98,6 +98,72 @@ class QaseService:
                             json.dumps(data, indent=2, default=str), 'error')
         return 0
 
+    def get_configuration_groups(self, project_code, limit=100, offset=0):
+        """Get all configuration groups for a project"""
+        try:
+            api_instance = ConfigurationsApi(self.client)
+            api_response = api_instance.get_configuration_groups(
+                code=project_code,
+                limit=limit,
+                offset=offset
+            )
+            if api_response.status and api_response.result.entities:
+                return api_response.result.entities
+        except ApiException as e:
+            self.logger.log(
+                f'Exception when calling ConfigurationsApi->get_configuration_groups: {e}', 'error')
+        return []
+
+    def get_all_configuration_groups(self, project_code):
+        """Get all configuration groups for a project (with pagination)"""
+        all_groups = []
+        limit = 100
+        offset = 0
+        
+        while True:
+            groups = self.get_configuration_groups(project_code, limit, offset)
+            if not groups:
+                break
+            all_groups.extend(groups)
+            if len(groups) < limit:
+                break
+            offset += limit
+        
+        return all_groups
+
+    def get_configurations(self, project_code, limit=100, offset=0):
+        """Get all configurations for a project"""
+        try:
+            api_instance = ConfigurationsApi(self.client)
+            api_response = api_instance.get_configurations(
+                code=project_code,
+                limit=limit,
+                offset=offset
+            )
+            if api_response.status and api_response.result.entities:
+                return api_response.result.entities
+        except ApiException as e:
+            self.logger.log(
+                f'Exception when calling ConfigurationsApi->get_configurations: {e}', 'error')
+        return []
+
+    def get_all_configurations(self, project_code):
+        """Get all configurations for a project (with pagination)"""
+        all_configs = []
+        limit = 100
+        offset = 0
+        
+        while True:
+            configs = self.get_configurations(project_code, limit, offset)
+            if not configs:
+                break
+            all_configs.extend(configs)
+            if len(configs) < limit:
+                break
+            offset += limit
+        
+        return all_configs
+
     def create_configuration_group(self, project_code, title):
         try:
             api_instance = ConfigurationsApi(self.client)
@@ -511,6 +577,39 @@ class QaseService:
                 f'Exception when calling AttachmentsApi->upload_attachment: {e}', 'warning')
         return None
 
+    def get_milestones(self, project_code, limit=100, offset=0):
+        """Get all milestones for a project"""
+        try:
+            api_instance = MilestonesApi(self.client)
+            api_response = api_instance.get_milestones(
+                code=project_code,
+                limit=limit,
+                offset=offset
+            )
+            if api_response.status and api_response.result.entities:
+                return api_response.result.entities
+        except ApiException as e:
+            self.logger.log(
+                f'Exception when calling MilestonesApi->get_milestones: {e}', 'error')
+        return []
+
+    def get_all_milestones(self, project_code):
+        """Get all milestones for a project (with pagination)"""
+        all_milestones = []
+        limit = 100
+        offset = 0
+        
+        while True:
+            milestones = self.get_milestones(project_code, limit, offset)
+            if not milestones:
+                break
+            all_milestones.extend(milestones)
+            if len(milestones) < limit:
+                break
+            offset += limit
+        
+        return all_milestones
+
     def create_milestone(self, project_code, title, description, status, due_date):
         data = {
             'project_code': project_code,
@@ -518,7 +617,7 @@ class QaseService:
         }
 
         if description:
-            data['description']: description
+            data['description'] = description
 
         if due_date:
             data['due_date'] = due_date

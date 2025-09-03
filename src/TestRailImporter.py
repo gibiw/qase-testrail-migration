@@ -27,17 +27,17 @@ class TestRailImporter:
 
     def start(self):
         # Step 1. Build users map
-        self.mappings = Users(
-            self.qase_service,
-            self.testrail_service,
-            self.logger,
-            self.mappings,
-            self.config,
-            self.pools,
-            self.qase_scim_service,
-        ).import_users()
+        # self.mappings = Users(
+        #     self.qase_service,
+        #     self.testrail_service,
+        #     self.logger,
+        #     self.mappings,
+        #     self.config,
+        #     self.pools,
+        #     self.qase_scim_service,
+        # ).import_users()
 
-        # Step 2. Import project and build projects map
+        # Step 2. Import project and build projects map (REQUIRED for runs import)
         self.mappings = Projects(
             self.qase_service, 
             self.testrail_service, 
@@ -47,7 +47,7 @@ class TestRailImporter:
             self.pools,
         ).import_projects()
 
-        # Step 3. Import attachments
+        # Step 3. Import attachments (REQUIRED for runs import)
         self.mappings = Attachments(
             self.qase_service,
             self.testrail_service,
@@ -57,17 +57,17 @@ class TestRailImporter:
             self.pools,
         ).import_all_attachments()
 
-        # Step 4. Import custom fields
-        self.mappings = Fields(
-            self.qase_service, 
-            self.testrail_service, 
-            self.logger, 
-            self.mappings,
-            self.config,
-            self.pools,
-        ).import_fields()
+        # Step 4. Import custom fields (NOT REQUIRED for runs import only)
+        # self.mappings = Fields(
+        #     self.qase_service, 
+        #     self.testrail_service, 
+        #     self.logger, 
+        #     self.mappings,
+        #     self.config,
+        #     self.pools,
+        # ).import_fields()
 
-        # Step 5. Import projects data in parallel
+        # Step 5. Import projects data in parallel (ONLY runs import)
         with ThreadPoolExecutor(max_workers=8) as executor:
             futures = []
             for project in self.mappings.projects:
@@ -90,6 +90,7 @@ class TestRailImporter:
                                    + project['suite_title']
                                    + ')' if 'suite_title' in project else ''))
 
+        # Import configurations (REQUIRED for runs import)
         self.mappings = Configurations(
             self.qase_service,
             self.testrail_service,
@@ -98,14 +99,16 @@ class TestRailImporter:
             self.pools,
         ).import_configurations(project)
         
-        self.mappings = SharedSteps(
-            self.qase_service,
-            self.testrail_service,
-            self.logger,
-            self.mappings,
-            self.pools,
-        ).import_shared_steps(project)
+        # Import shared steps (NOT REQUIRED for runs import only)
+        # self.mappings = SharedSteps(
+        #     self.qase_service,
+        #     self.testrail_service,
+        #     self.logger,
+        #     self.mappings,
+        #     self.pools,
+        # ).import_shared_steps(project)
 
+        # Import milestones (REQUIRED for runs import)
         self.mappings = Milestones(
             self.qase_service,
             self.testrail_service,
@@ -113,24 +116,27 @@ class TestRailImporter:
             self.mappings,
         ).import_milestones(project)
 
-        self.mappings = Suites(
-            self.qase_service,
-            self.testrail_service,
-            self.logger,
-            self.mappings,
-            self.config,
-            self.pools,
-        ).import_suites(project)
+        # Import suites (NOT REQUIRED for runs import only)
+        # self.mappings = Suites(
+        #     self.qase_service,
+        #     self.testrail_service,
+        #     self.logger,
+        #     self.mappings,
+        #     self.config,
+        #     self.pools,
+        # ).import_suites(project)
 
-        Cases(
-            self.qase_service,
-            self.testrail_service,
-            self.logger,
-            self.mappings,
-            self.config,
-            self.pools,
-        ).import_cases(project)
+        # Import cases (NOT REQUIRED for runs import only)
+        # Cases(
+        #     self.qase_service,
+        #     self.testrail_service,
+        #     self.logger,
+        #     self.mappings,
+        #     self.config,
+        #     self.pools,
+        # ).import_cases(project)
 
+        # Import runs (ONLY this is needed for runs import)
         Runs(
             self.qase_service,
             self.testrail_service,

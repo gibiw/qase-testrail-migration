@@ -53,7 +53,16 @@ class Milestones:
         name = milestone['name']
         if prefix != '':
             name = '[' + prefix + '] ' + name
+        
+        # Check if milestone already exists by name
+        existing_milestones = self.qase.get_all_milestones(code)
+        for existing_milestone in existing_milestones:
+            if existing_milestone.title == name:
+                self.logger.log(f"[{code}][Milestones] Milestone '{name}' already exists, using existing ID: {existing_milestone.id}")
+                return existing_milestone.id
             
+        # Create new milestone if not found
+        self.logger.log(f"[{code}][Milestones] Creating new milestone '{name}'")
         return self.qase.create_milestone(
             code, 
             title=name, 
