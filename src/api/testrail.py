@@ -117,7 +117,7 @@ class TestrailApiClient:
             self.logger.log('Failed to login to TestRail API and get auth cookie')
             return self.get(f'get_attachment/{id}')
         else:
-            return self.session.get(self._attachment_url + id)
+            return self.session.get(f'{self._attachment_url}{id}')
         
     def fetch_data(self, offset):
         data = {

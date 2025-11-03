@@ -5,8 +5,6 @@ from ..support import Logger, Mappings, ConfigManager as Config, Pools
 
 from typing import List
 
-from io import BytesIO
-
 from urllib.parse import unquote
 
 import re
@@ -63,16 +61,14 @@ class Attachments:
             return re.findall(r'index\.php\?/attachments/get/([a-f0-9-]+)', str(string))
         return []
 
-    def _get_attachment_meta(self, data: dict) -> dict:
-        content = BytesIO(data.content)
-        content.mime = data.headers.get('Content-Type', '')
-        content.name = "attachment"
+    def _get_attachment_meta(self, data) -> tuple:
+        filename = "attachment"
         filename_header = data.headers.get('Content-Disposition', '')
         match = re.search(r"filename\*=UTF-8''(.+)", filename_header)
         if match:
-            content.name = unquote(match.group(1))
+            filename = unquote(match.group(1))
 
-        return content
+        return (filename, data.content)
 
     def replace_attachments(self, string: str, code: str) -> str:
         string = re.sub(r'^E_', '', string)
