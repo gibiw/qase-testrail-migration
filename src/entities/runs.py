@@ -219,6 +219,9 @@ class Runs:
     def _clean_results(self, results: list) -> list:
         clean_results = []
         for result in results:
+            if result.get('comment'):
+                result['comment'] = self.attachments.check_and_replace_attachments(result['comment'], self.project['code'])
+
             if result['status_id'] != 3:
                 if len(result['attachment_ids']) > 0:
                     result['attachments'] = self.attachments.check_and_replace_attachments_array(
