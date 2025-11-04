@@ -94,7 +94,7 @@ class TestrailApiClient:
                     self.logger.log(f'Access denied (403) for URL: {url}')
                     raise APIError('Access denied.')
                 elif response.status_code == 400:
-                    self.logger.log(f'Invalid data or entity not found (400) for URL: {url}')
+                    self.logger.log(f'Invalid data or entity not found (400) for URL: {url} | {response.text}')
                     raise APIError('Invalid data or entity not found.')
                 else:
                     self.logger.log(f'Server error ({response.status_code}) for URL: {url}, attempt {attempt + 1}')

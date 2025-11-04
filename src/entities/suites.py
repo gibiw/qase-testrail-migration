@@ -35,7 +35,7 @@ class Suites:
     async def import_suites_async(self, project):
         self.logger.log(f'[{project["code"]}][Suites] Importing suites from TestRail project {project["name"]}')
         async with asyncio.TaskGroup() as tg:
-            if project['suite_mode'] == 3:
+            if project['suite_mode'] in (2, 3):
                 # Suites in testrail should be saved as suites in Qase
                 suites = await self.pools.tr(self.testrail.get_suites, project['testrail_id'])
                 self.mappings.stats.add_entity_count(project['code'], 'suites', 'testrail', len(suites))

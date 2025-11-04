@@ -48,7 +48,7 @@ class Cases:
         self.project = project
 
         async with asyncio.TaskGroup() as tg:
-            if self.project['suite_mode'] == 3:
+            if self.project['suite_mode'] in (2, 3):
                 suites = await self.pools.tr(self.testrail.get_suites, self.project['testrail_id'])
                 for suite in suites:
                     tg.create_task(self.import_cases_for_suite(suite['id']))
