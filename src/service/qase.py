@@ -601,6 +601,16 @@ class QaseService:
 
     def upload_attachment(self, code, attachment_data):
         api_attachments = AttachmentsApi(self.client)
+        
+        # Extract filename and size from attachment_data (tuple: (filename, content))
+        filename = "unknown"
+        file_size = 0
+        if isinstance(attachment_data, tuple) and len(attachment_data) >= 2:
+            filename = attachment_data[0] if attachment_data[0] else "unknown"
+            content = attachment_data[1]
+            if content:
+                file_size = len(content) if isinstance(content, bytes) else len(str(content))
+        
         try:
             response = api_attachments.upload_attachment(
                     code, file=[attachment_data],
@@ -608,8 +618,37 @@ class QaseService:
 
             if response.status:
                 return response.result[0].to_dict()
+        except ApiException as e:
+            # Check if it's a 413 error (Request Entity Too Large)
+            status_code = None
+            if hasattr(e, 'status'):
+                status_code = e.status
+            elif hasattr(e, 'status_code'):
+                status_code = e.status_code
+            else:
+                # Try to extract status code from string representation
+                # Format: "(413)\nReason: Request Entity Too Large"
+                error_str = str(e)
+                if '(413)' in error_str:
+                    status_code = 413
+            
+            if status_code == 413:
+                file_size_mb = file_size / (1024 * 1024) if file_size > 0 else 0
+                self.logger.log(f'[{code}][Attachments] '
+                    f'Exception when calling AttachmentsApi->upload_attachment: (413) Request Entity Too Large. '
+                    f'File: {filename}, Size: {file_size} bytes ({file_size_mb:.2f} MB)',
+                    'warning'
+                )
+            else:
+                self.logger.log(f'Exception when calling AttachmentsApi->upload_attachment: {e}', 'warning')
         except Exception as e:
-            self.logger.log(f'Exception when calling AttachmentsApi->upload_attachment: {e}', 'warning')
+            # For other exceptions, also log file details if available
+            file_size_mb = file_size / (1024 * 1024) if file_size > 0 else 0
+            self.logger.log(f'[{code}][Attachments] '
+                f'Exception when calling AttachmentsApi->upload_attachment: {e}. '
+                f'File: {filename}, Size: {file_size} bytes ({file_size_mb:.2f} MB)',
+                'warning'
+            )
         return None
 
     def create_milestone(self, project_code, title, description, status, due_date):

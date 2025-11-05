@@ -220,12 +220,12 @@ class Runs:
         clean_results = []
         for result in results:
             if result.get('comment'):
-                result['comment'] = self.attachments.check_and_replace_attachments(result['comment'], self.project['code'])
+                result['attachments'] = self.attachments.check_and_replace_attachments_from_string_array(result['comment'], self.project['code'])
 
             if result['status_id'] != 3:
                 if len(result['attachment_ids']) > 0:
-                    result['attachments'] = self.attachments.check_and_replace_attachments_array(
-                        result['attachment_ids'], self.project['code'])
+                    result['attachments'].extend(self.attachments.check_and_replace_attachments_array(
+                        result['attachment_ids'], self.project['code']))
                 del result['attachment_ids']
                 del result['version']
                 clean_results.append(result)
