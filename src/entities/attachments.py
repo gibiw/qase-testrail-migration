@@ -61,21 +61,24 @@ class Attachments:
     def check_and_replace_attachments_array(self, attachments: list, code: str) -> list:
         result = []
         for attachment in attachments:
+            self.logger.log(f'[{code}][Attachments] Checking attachment: {attachment} in attachments_array')
             try:
-                if attachment is None or isinstance(attachment, int):
+                if attachment is None:
                     continue
                 if attachment:
                     attachment = re.sub(r'^E_', '', str(attachment))
                 if attachment and attachment not in self.mappings.attachments_map:
-                    self.logger.log(f'[{code}][Attachments] Attachment {attachment} not found in attachments_map (array)',
+                    self.logger.log(f'[{code}][Attachments] Attachment {attachment} not found in attachments_map (array) in check_and_replace_attachments_array',
                                     'warning')
                     self.replace_failover(attachment, code)
                 if attachment and attachment in self.mappings.attachments_map and self.mappings.attachments_map[
                     attachment] and 'hash' in self.mappings.attachments_map[attachment]:
-                    self.logger.log(f'[{code}][Attachments] Attachment {attachment} found in attachments_map (array)', 'info')
+                    self.logger.log(f'[{code}][Attachments] Attachment {attachment} found in attachments_map (array) in check_and_replace_attachments_array', 'info')
                     result.append(self.mappings.attachments_map[attachment]['hash'])
             except Exception as e:
-                self.logger.log(f'[{code}][Attachments] Error processing attachment {attachment}: {e}', 'error')
+                self.logger.log(f'[{code}][Attachments] Error processing attachment {attachment} in check_and_replace_attachments_array: {e}', 'error')
+
+        self.logger.log(f'[{code}][Attachments] Result attachments in check_and_replace_attachments_array: {result}')
         return result
 
     def check_attachments(self, string: str) -> List:

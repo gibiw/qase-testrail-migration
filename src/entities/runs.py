@@ -219,15 +219,25 @@ class Runs:
     def _clean_results(self, results: list) -> list:
         clean_results = []
         for result in results:
+            self.logger.log(f'[{self.project["code"]}][Runs] Cleaning result: id={result.get("id")}, test_id={result.get("test_id")}, status_id={result.get("status_id")}, comment={result.get("comment")[:100] if result.get("comment") else None}, attachments={result.get("attachments")}, attachment_ids={result.get("attachment_ids")}, version={result.get("version")}')
+            
+            # Initialize attachments list if it doesn't exist
+            if 'attachments' not in result:
+                result['attachments'] = []
+
             if result.get('comment'):
                 result['attachments'] = self.attachments.check_and_replace_attachments_from_string_array(result['comment'], self.project['code'])
+                self.logger.log(f'[{self.project["code"]}][Runs][{result["id"]}] Result attachments: {result["attachments"]}')
 
             if result['status_id'] != 3:
-                if len(result['attachment_ids']) > 0:
+                if result.get('attachment_ids') and len(result['attachment_ids']) > 0:
                     result['attachments'].extend(self.attachments.check_and_replace_attachments_array(
                         result['attachment_ids'], self.project['code']))
-                del result['attachment_ids']
-                del result['version']
+                    self.logger.log(f'[{self.project["code"]}][Runs][{result["id"]}] Result attachments after check_and_replace_attachments_array: {result["attachments"]}')
+                if 'attachment_ids' in result:
+                    del result['attachment_ids']
+                if 'version' in result:
+                    del result['version']
                 clean_results.append(result)
 
         return clean_results
