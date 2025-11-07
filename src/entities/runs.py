@@ -226,13 +226,18 @@ class Runs:
                 result['attachments'] = []
 
             if result.get('comment'):
-                result['attachments'] = self.attachments.check_and_replace_attachments_from_string_array(result['comment'], self.project['code'])
+                result_id = str(result.get('id')) if result.get('id') is not None else None
+                test_id = str(result.get('test_id')) if result.get('test_id') is not None else None
+                result['attachments'] = self.attachments.check_and_replace_attachments_from_string_array(
+                    result['comment'], self.project['code'], result_id=result_id, test_id=test_id)
                 self.logger.log(f'[{self.project["code"]}][Runs][{result["id"]}] Result attachments: {result["attachments"]}')
 
             if result['status_id'] != 3:
                 if result.get('attachment_ids') and len(result['attachment_ids']) > 0:
+                    result_id = str(result.get('id')) if result.get('id') is not None else None
+                    test_id = str(result.get('test_id')) if result.get('test_id') is not None else None
                     result['attachments'].extend(self.attachments.check_and_replace_attachments_array(
-                        result['attachment_ids'], self.project['code']))
+                        result['attachment_ids'], self.project['code'], result_id=result_id, test_id=test_id))
                     self.logger.log(f'[{self.project["code"]}][Runs][{result["id"]}] Result attachments after check_and_replace_attachments_array: {result["attachments"]}')
                 if 'attachment_ids' in result:
                     del result['attachment_ids']

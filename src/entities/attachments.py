@@ -30,14 +30,14 @@ class Attachments:
         self.pools = pools
         self.pattern = r'!\[\]\(index\.php\?/attachments/get/([a-f0-9-]+)\)'
 
-    def check_and_replace_attachments(self, string: str, code: str) -> str:
+    def check_and_replace_attachments(self, string: str, code: str, result_id: str = None, test_id: str = None) -> str:
         if string:
             attachments = self.check_attachments(string)
             if (attachments):
-                return self.replace_attachments(string=string, code = code)
+                return self.replace_attachments(string=string, code = code, result_id=result_id, test_id=test_id)
         return str(string)
 
-    def check_and_replace_attachments_from_string_array(self, string: str, code: str) -> list:
+    def check_and_replace_attachments_from_string_array(self, string: str, code: str, result_id: str = None, test_id: str = None) -> list:
         result = []
 
         attachments = self.check_attachments(string)
@@ -50,7 +50,7 @@ class Attachments:
                 if attachment and attachment not in self.mappings.attachments_map:
                     self.logger.log(f'[{code}][Attachments] Attachment {attachment} not found in attachments_map (array)',
                                     'warning')
-                    self.replace_failover(attachment, code)
+                    self.replace_failover(attachment, code, result_id, test_id)
                 if attachment and attachment in self.mappings.attachments_map and self.mappings.attachments_map[
                     attachment] and 'hash' in self.mappings.attachments_map[attachment]:
                     result.append(self.mappings.attachments_map[attachment]['hash'])
@@ -58,7 +58,7 @@ class Attachments:
                 self.logger.log(f'[{code}][Attachments] Error processing attachment {attachment}: {e}', 'error')
         return result
 
-    def check_and_replace_attachments_array(self, attachments: list, code: str) -> list:
+    def check_and_replace_attachments_array(self, attachments: list, code: str, result_id: str = None, test_id: str = None) -> list:
         result = []
         for attachment in attachments:
             self.logger.log(f'[{code}][Attachments] Checking attachment: {attachment} in attachments_array')
@@ -70,7 +70,7 @@ class Attachments:
                 if attachment and attachment not in self.mappings.attachments_map:
                     self.logger.log(f'[{code}][Attachments] Attachment {attachment} not found in attachments_map (array) in check_and_replace_attachments_array',
                                     'warning')
-                    self.replace_failover(attachment, code)
+                    self.replace_failover(attachment, code, result_id, test_id)
                 if attachment and attachment in self.mappings.attachments_map and self.mappings.attachments_map[
                     attachment] and 'hash' in self.mappings.attachments_map[attachment]:
                     self.logger.log(f'[{code}][Attachments] Attachment {attachment} found in attachments_map (array) in check_and_replace_attachments_array', 'info')
@@ -95,7 +95,7 @@ class Attachments:
 
         return (filename, data.content)
 
-    def replace_attachments(self, string: str, code: str) -> str:
+    def replace_attachments(self, string: str, code: str, result_id: str = None, test_id: str = None) -> str:
         string = re.sub(r'^E_', '', string)
         try:
 
@@ -104,7 +104,7 @@ class Attachments:
                 attachment_id = match.group(1)
                 if attachment_id not in self.mappings.attachments_map:
                     self.logger.log(f'[{code}][Attachments] Attachment {attachment_id} not found in attachments_map', 'warning')
-                    self.replace_failover(attachment_id, code)
+                    self.replace_failover(attachment_id, code, result_id, test_id)
                 string = self.replace_string(string, code, attachment_id)
             else:
                 self.logger.log(f'[{code}][Attachments] No attachments found in a string {string}', 'warning')
@@ -112,18 +112,27 @@ class Attachments:
             self.logger.log(f'[{code}][Attachments] Exception when replacing attachments in a string {string}: {e}', 'error')
         return string
 
-    def replace_failover(self, attachment_id, code: str):
+    def replace_failover(self, attachment_id, code: str, result_id: str = None, test_id: str = None):
         try:
-            self.logger.log(f'[{code}][Attachments] Replacing attachment {attachment_id} in failover')
-            attachment_data = self._get_attachment_meta(self.testrail.get_attachment(attachment_id))
+            result_info = ''
+            if result_id is not None or test_id is not None:
+                result_parts = []
+                if result_id is not None:
+                    result_parts.append(f'result_id={result_id}')
+                if test_id is not None:
+                    result_parts.append(f'test_id={test_id}')
+                result_info = f' for result ({", ".join(result_parts)})'
+            self.logger.log(f'[{code}][Attachments] Replacing attachment {attachment_id} in failover{result_info}')
+            attachment_data = self.testrail.get_attachment(attachment_id)
+            attachment_data = self._get_attachment_meta(attachment_data)
             qase_attachment = self.qase.upload_attachment(code, attachment_data)
             if qase_attachment:
                 self.mappings.attachments_map[attachment_id] = qase_attachment
-                self.logger.log(f'[{code}][Attachments] Attachment {attachment_id} replaced in failover')
+                self.logger.log(f'[{code}][Attachments] Attachment {attachment_id} replaced in failover{result_info}')
             else:
-                self.logger.log(f'[{code}][Attachments] Attachment {attachment_id} not replaced in failover', 'error')
+                self.logger.log(f'[{code}][Attachments] Attachment {attachment_id} not replaced in failover{result_info}', 'error')
         except Exception as e:
-            self.logger.log(f'[{code}][Attachments] Exception when calling Qase->upload_attachment in failover: {e}', 'error')
+            self.logger.log(f'[{code}][Attachments] Exception when calling Qase->upload_attachment in failover{result_info}: {e}', 'error')
 
     def replace_string(self, string, code, attachment_id):
         return re.sub(
