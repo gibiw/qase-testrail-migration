@@ -178,7 +178,7 @@ class Runs:
             key=lambda x: (math.isnan(x), x)
         ))
 
-        qase_run_id = await self.pools.qs(self.qase.create_run, run, self.project['code'], list(cases_map.values()),
+        qase_run_id = await self.pools.qs(self.qase.create_run, run, self.project['code'], [v['qase_case_id'] for v in cases_map.values()],
                                           milestone_id)
 
         if not bool(qase_run_id):
@@ -323,7 +323,65 @@ class Runs:
         limit = 250
         offset = 0
         process = True
+        
+        # Build a map of case_id -> title for cases in this run
+        case_titles_map = {}
+        case_ids_missing_title = set()
 
+        # First pass: collect test data and try to get titles from test objects
+        while process:
+            tests = await self.pools.tr(self.testrail.get_tests, run['id'], limit, offset)
+            if tests['size'] < limit:
+                process = False
+            offset = offset + limit
+            for test in tests['tests']:
+                if test['case_id']:
+                    # Try to get title from test object first (TestRail API may include it)
+                    if 'title' in test and test['title']:
+                        case_titles_map[test['case_id']] = test['title']
+                    else:
+                        # Mark this case_id as needing title lookup
+                        case_ids_missing_title.add(test['case_id'])
+        
+        # If we have cases missing titles, fetch them from cases API
+        if case_ids_missing_title:
+            # Fetch cases to get their titles
+            cases_limit = 250
+            cases_offset = 0
+            cases_process = True
+            while cases_process and case_ids_missing_title:
+                cases_response = await self.pools.tr(
+                    self.testrail.get_cases, 
+                    self.project['testrail_id'], 
+                    0,  # suite_id
+                    cases_limit, 
+                    cases_offset
+                )
+                if isinstance(cases_response, dict) and 'cases' in cases_response:
+                    cases = cases_response['cases']
+                    if len(cases) < cases_limit:
+                        cases_process = False
+                elif isinstance(cases_response, list):
+                    cases = cases_response
+                    if len(cases) < cases_limit:
+                        cases_process = False
+                else:
+                    cases = []
+                    cases_process = False
+                
+                cases_offset += cases_limit
+                for case in cases:
+                    if case['id'] in case_ids_missing_title:
+                        case_titles_map[case['id']] = case.get('title', f"Test case {case['id']}")
+                        case_ids_missing_title.discard(case['id'])
+                        # Stop if we found all missing titles
+                        if not case_ids_missing_title:
+                            cases_process = False
+                            break
+        
+        # Second pass: build the cases_map with titles
+        process = True
+        offset = 0
         while process:
             tests = await self.pools.tr(self.testrail.get_tests, run['id'], limit, offset)
             if tests['size'] < limit:
@@ -333,7 +391,18 @@ class Runs:
                 if test['case_id']:
                     # Use case ID mapping if available
                     qase_case_id = self.mappings.get_qase_case_id(test['case_id'])
-                    cases_map[test['id']] = qase_case_id
+                    # Get title from our map, or use fallback
+                    case_title = case_titles_map.get(
+                        test['case_id'], 
+                        test.get('title', f"Test case {test['case_id']}")
+                    )
+                    # Store both qase_case_id and title for each test
+                    cases_map[test['id']] = {
+                        'qase_case_id': qase_case_id,
+                        'title': case_title
+                    }
+                    # Log that we're storing title in cases_map
+                    self.logger.log(f'[{self.project["code"]}][Runs] Storing in cases_map: test_id={test["id"]}, case_id={test["case_id"]}, qase_case_id={qase_case_id}, title="{case_title}"')
                     if qase_case_id != test['case_id']:
                         self.logger.log(f'[{self.project["code"]}][Runs] Mapped TestRail case ID {test["case_id"]} to Qase case ID {qase_case_id}')
                     else:

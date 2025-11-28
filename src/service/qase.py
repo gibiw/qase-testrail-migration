@@ -389,7 +389,7 @@ class QaseService:
                             ):
                             status = mappings.result_statuses[result["status_id"]]
                         data = {
-                            "case_id": cases_map[result['test_id']],
+                            "case_id": cases_map[result['test_id']]['qase_case_id'],
                             "status": status,
                             "time_ms": elapsed*1000,  # converting to milliseconds
                             "comment": format_links_as_markdown(str(result['comment']))
@@ -441,7 +441,7 @@ class QaseService:
             qase_run_id: Qase run ID
             qase_code: Qase project code
             mappings: Status mappings
-            cases_map: Mapping of TestRail case IDs to Qase case IDs
+            cases_map: Mapping of TestRail test IDs to dict with 'qase_case_id' and 'title'
         """
         res = []
 
@@ -480,10 +480,13 @@ class QaseService:
                             end_time=start_time + elapsed if start_time else None
                         )
 
+                        # Get case title from cases_map
+                        case_title = cases_map[result['test_id']].get('title', f"Test case {result['test_id']}")
+
                         # Create ResultCreate object
                         result_data = ResultCreateV2(
-                            title=f"Test result for case {result['test_id']}",  # You might want to get actual case title
-                            testops_id=cases_map[result['test_id']],
+                            title=case_title,
+                            testops_id=cases_map[result['test_id']]['qase_case_id'],
                             execution=execution,
                             message=format_links_as_markdown(str(result['comment'])) if result.get('comment') else None
                         )
