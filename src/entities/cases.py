@@ -669,7 +669,8 @@ class Cases:
         Supports both 'case_numbers' and 'numbers' -> 'numbers'
         """
         # Remove common prefixes that might be added to field names
-        prefixes_to_remove = ['case_', 'test_', 'tr_']
+        # Note: 'test_' is excluded to avoid conflicts with fields like 'custom_test_data'
+        prefixes_to_remove = ['case_', 'tr_']
         
         for prefix in prefixes_to_remove:
             if field_name.startswith(prefix):
