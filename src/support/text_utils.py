@@ -443,3 +443,122 @@ def convert_estimate_time_to_hours(estimate_string):
     else:
         # If no valid conversion, return original string
         return estimate_string
+
+
+def html_to_markdown(html_text, remove_html=False):
+    """
+    Convert HTML to Markdown or remove HTML tags.
+    
+    Args:
+        html_text (str): HTML text to convert
+        remove_html (bool): If True, remove HTML tags. If False, convert to markdown.
+        
+    Returns:
+        str: Converted markdown text or text without HTML tags
+    """
+    if html_text is None:
+        return None
+    
+    if not isinstance(html_text, str):
+        return html_text
+    
+    # Try to use html2text if available
+    try:
+        import html2text
+        h = html2text.HTML2Text()
+        h.ignore_links = False
+        h.ignore_images = False
+        h.body_width = 0  # Don't wrap lines
+        h.unicode_snob = True
+        h.escape_snob = True
+        
+        if remove_html:
+            # Just remove HTML tags, keep text content
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(html_text, 'html.parser')
+            return soup.get_text(separator=' ', strip=True)
+        else:
+            # Convert to markdown
+            markdown_text = h.handle(html_text)
+            # Clean up extra whitespace
+            markdown_text = re.sub(r'\n{3,}', '\n\n', markdown_text)
+            return markdown_text.strip()
+    except ImportError:
+        # Fallback to BeautifulSoup if html2text is not available
+        try:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(html_text, 'html.parser')
+            
+            if remove_html:
+                # Just remove HTML tags
+                return soup.get_text(separator=' ', strip=True)
+            else:
+                # Basic HTML to markdown conversion
+                # Convert common HTML elements to markdown
+                text = str(soup)
+                
+                # Convert <strong> and <b> to **
+                text = re.sub(r'<strong[^>]*>(.*?)</strong>', r'**\1**', text, flags=re.DOTALL | re.IGNORECASE)
+                text = re.sub(r'<b[^>]*>(.*?)</b>', r'**\1**', text, flags=re.DOTALL | re.IGNORECASE)
+                
+                # Convert <em> and <i> to *
+                text = re.sub(r'<em[^>]*>(.*?)</em>', r'*\1*', text, flags=re.DOTALL | re.IGNORECASE)
+                text = re.sub(r'<i[^>]*>(.*?)</i>', r'*\1*', text, flags=re.DOTALL | re.IGNORECASE)
+                
+                # Convert <a href="...">text</a> to [text](url)
+                text = re.sub(r'<a[^>]*href=["\']([^"\']*)["\'][^>]*>(.*?)</a>', r'[\2](\1)', text, flags=re.DOTALL | re.IGNORECASE)
+                
+                # Convert <p> to newlines
+                text = re.sub(r'<p[^>]*>', '\n\n', text, flags=re.IGNORECASE)
+                text = re.sub(r'</p>', '\n', text, flags=re.IGNORECASE)
+                
+                # Convert <br> and <br/> to newlines
+                text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
+                
+                # Convert <ul> and <ol> lists
+                text = re.sub(r'<li[^>]*>(.*?)</li>', r'- \1\n', text, flags=re.DOTALL | re.IGNORECASE)
+                text = re.sub(r'<ul[^>]*>|</ul>|<ol[^>]*>|</ol>', '\n', text, flags=re.IGNORECASE)
+                
+                # Convert <h1> to #
+                text = re.sub(r'<h1[^>]*>(.*?)</h1>', r'# \1\n\n', text, flags=re.DOTALL | re.IGNORECASE)
+                text = re.sub(r'<h2[^>]*>(.*?)</h2>', r'## \1\n\n', text, flags=re.DOTALL | re.IGNORECASE)
+                text = re.sub(r'<h3[^>]*>(.*?)</h3>', r'### \1\n\n', text, flags=re.DOTALL | re.IGNORECASE)
+                
+                # Remove all remaining HTML tags
+                text = re.sub(r'<[^>]+>', '', text)
+                
+                # Decode HTML entities
+                import html
+                text = html.unescape(text)
+                
+                # Clean up extra whitespace
+                text = re.sub(r'\n{3,}', '\n\n', text)
+                text = re.sub(r'[ \t]+', ' ', text)
+                
+                return text.strip()
+        except ImportError:
+            # Last resort: simple regex-based removal
+            if remove_html:
+                # Remove HTML tags
+                text = re.sub(r'<[^>]+>', '', html_text)
+                # Decode HTML entities
+                import html
+                text = html.unescape(text)
+                return text.strip()
+            else:
+                # Basic conversion without BeautifulSoup
+                text = html_text
+                # Convert <strong> and <b> to **
+                text = re.sub(r'<strong[^>]*>(.*?)</strong>', r'**\1**', text, flags=re.DOTALL | re.IGNORECASE)
+                text = re.sub(r'<b[^>]*>(.*?)</b>', r'**\1**', text, flags=re.DOTALL | re.IGNORECASE)
+                # Convert <em> and <i> to *
+                text = re.sub(r'<em[^>]*>(.*?)</em>', r'*\1*', text, flags=re.DOTALL | re.IGNORECASE)
+                text = re.sub(r'<i[^>]*>(.*?)</i>', r'*\1*', text, flags=re.DOTALL | re.IGNORECASE)
+                # Convert <a href="...">text</a> to [text](url)
+                text = re.sub(r'<a[^>]*href=["\']([^"\']*)["\'][^>]*>(.*?)</a>', r'[\2](\1)', text, flags=re.DOTALL | re.IGNORECASE)
+                # Remove all remaining HTML tags
+                text = re.sub(r'<[^>]+>', '', text)
+                # Decode HTML entities
+                import html
+                text = html.unescape(text)
+                return text.strip()
