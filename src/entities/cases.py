@@ -5,7 +5,7 @@ import hashlib
 import time
 
 from ..service import QaseService, TestrailService
-from ..support import Logger, Mappings, ConfigManager as Config, Pools, format_links_as_markdown, convert_testrail_date_to_iso, convert_estimate_time_to_hours
+from ..support import Logger, Mappings, ConfigManager as Config, Pools, format_links_as_markdown, convert_testrail_date_to_iso, convert_estimate_time_to_hours, html_to_markdown
 
 from qase.api_client_v1.models import TestStepCreate, TestCasebulkCasesInner
 from .attachments import Attachments
@@ -417,8 +417,10 @@ class Cases:
                         data['custom_field'][str(custom_field['qase_id'])] = converted_date
                         self.logger.log(f'[{self.project["code"]}][Tests] Set datepicker field "{custom_field["name"]}" to converted date: "{converted_date}" (original: "{field_value}")')
                     else:
-                        field_value = format_links_as_markdown(str(
-                            self.attachments.check_and_replace_attachments(case[field_name], self.project['code'])))
+                        # Process field: replace attachments, convert HTML to markdown, format links
+                        field_value = str(self.attachments.check_and_replace_attachments(case[field_name], self.project['code']))
+                        field_value = html_to_markdown(field_value, remove_html=False)  # Convert HTML tags to markdown
+                        field_value = format_links_as_markdown(field_value)
                         
                         # Special handling for preconds field - only set preconditions system field, skip custom field
                         if normalized_name == 'preconds':
@@ -515,8 +517,10 @@ class Cases:
                         self.logger.log(f'[{self.project["code"]}][Tests] Set global datepicker field "{custom_field["name"]}" to converted date: "{converted_date}" (original: "{field_value}")')
                     else:
                         # Handle non-dropdown fields (text, number, etc.)
-                        field_value = format_links_as_markdown(str(
-                            self.attachments.check_and_replace_attachments(case[field_name], self.project['code'])))
+                        # Process field: replace attachments, convert HTML to markdown, format links
+                        field_value = str(self.attachments.check_and_replace_attachments(case[field_name], self.project['code']))
+                        field_value = html_to_markdown(field_value, remove_html=False)  # Convert HTML tags to markdown
+                        field_value = format_links_as_markdown(field_value)
                         
                         # Special handling for preconds field - only set preconditions system field, skip custom field
                         if normalized_name == 'preconds':
@@ -543,7 +547,9 @@ class Cases:
                         self.logger.log(f'[{self.project["code"]}][Tests] Case {case["title"]} has invalid step {step}',
                                         'warning')
                     else:
+                        # Process step: replace attachments, convert HTML to markdown, format links
                         action = self.attachments.check_and_replace_attachments(step['content'], self.project['code'])
+                        action = html_to_markdown(action, remove_html=False)  # Convert HTML tags to markdown
                         action = action.strip()
 
                         if action == '' or action == ' ':
@@ -565,10 +571,16 @@ class Cases:
                 steps = []
                 i = 1
                 for step in case[field_name]:
+                    # Process step fields: replace attachments, convert HTML to markdown, format links
                     action = self.attachments.check_and_replace_attachments(step['content'], self.project['code'])
                     expected = self.attachments.check_and_replace_attachments(step['expected'], self.project['code'])
                     input_data = self.attachments.check_and_replace_attachments(step.get('additional_info', ''),
                                                                                 self.project['code'])
+                    
+                    # Convert HTML to markdown for all step fields
+                    action = html_to_markdown(action, remove_html=False) if action else action
+                    expected = html_to_markdown(expected, remove_html=False) if expected else expected
+                    input_data = html_to_markdown(input_data, remove_html=False) if input_data else input_data
 
                     action = action.strip()
                     expected = expected.strip()
