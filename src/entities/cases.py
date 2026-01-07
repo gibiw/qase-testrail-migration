@@ -229,6 +229,71 @@ class Cases:
         # Wrap in markdown link format
         return f"[{ref}]({link_url})"
 
+    def _collect_attachment_hashes_from_text_fields(self, case: dict, data: dict) -> set:
+        """
+        Collect attachment hashes from all text fields that may contain inline attachment references.
+        This ensures attachments referenced in markdown (description, preconditions, steps, etc.)
+        are registered in Qase so case creation doesn't fail with "attachment not found" errors.
+        
+        We check the original case data (before markdown replacement) to extract attachment IDs,
+        then look up their hashes from the attachments_map.
+        
+        Returns a set of unique attachment hashes.
+        """
+        attachment_hashes = set()
+        
+        # Collect from custom fields (description, preconditions, etc.) in original case data
+        for field_name in case:
+            if field_name.startswith('custom_'):
+                field_value = case[field_name]
+                if field_value:
+                    # Extract attachment IDs from this field (before markdown replacement)
+                    attachment_ids = self.attachments.check_attachments(str(field_value))
+                    for attachment_id in attachment_ids:
+                        if attachment_id in self.mappings.attachments_map:
+                            attachment_hashes.add(self.mappings.attachments_map[attachment_id]['hash'])
+        
+        # Collect from steps in original case data (before processing)
+        # Check for BDD scenario steps
+        if 'custom_testrail_bdd_scenario' in case and case['custom_testrail_bdd_scenario']:
+            try:
+                parsed_data = json.loads(case['custom_testrail_bdd_scenario'])
+                for step in parsed_data:
+                    if 'content' in step and step['content']:
+                        attachment_ids = self.attachments.check_attachments(str(step['content']))
+                        for attachment_id in attachment_ids:
+                            if attachment_id in self.mappings.attachments_map:
+                                attachment_hashes.add(self.mappings.attachments_map[attachment_id]['hash'])
+            except Exception:
+                pass  # Invalid JSON, skip
+        
+        # Check for step fields (custom_step_results, etc.)
+        for field_name in case:
+            if field_name.startswith('custom_') and field_name[len('custom_'):] in self.mappings.step_fields and case[field_name]:
+                for step in case[field_name]:
+                    # Check content (action)
+                    if 'content' in step and step['content']:
+                        attachment_ids = self.attachments.check_attachments(str(step['content']))
+                        for attachment_id in attachment_ids:
+                            if attachment_id in self.mappings.attachments_map:
+                                attachment_hashes.add(self.mappings.attachments_map[attachment_id]['hash'])
+                    
+                    # Check expected result
+                    if 'expected' in step and step['expected']:
+                        attachment_ids = self.attachments.check_attachments(str(step['expected']))
+                        for attachment_id in attachment_ids:
+                            if attachment_id in self.mappings.attachments_map:
+                                attachment_hashes.add(self.mappings.attachments_map[attachment_id]['hash'])
+                    
+                    # Check additional_info (data)
+                    if 'additional_info' in step and step['additional_info']:
+                        attachment_ids = self.attachments.check_attachments(str(step['additional_info']))
+                        for attachment_id in attachment_ids:
+                            if attachment_id in self.mappings.attachments_map:
+                                attachment_hashes.add(self.mappings.attachments_map[attachment_id]['hash'])
+        
+        return attachment_hashes
+
     async def _get_attachments_for_case(self, case: dict, data: dict) -> dict:
         self.logger.log(f'[{self.project["code"]}][Tests] Getting attachments for case {case["title"]}')
         try:
@@ -249,6 +314,16 @@ class Cases:
             except Exception as e:
                 self.logger.log(
                     f'[{self.project["code"]}][Tests] Failed to get attachment for case {case["title"]}: {e}', 'error')
+        
+        # Collect attachment hashes from inline references in text fields
+        # This ensures attachments referenced in markdown (description, preconditions, steps, etc.)
+        # are registered in Qase so case creation doesn't fail with "attachment not found" errors
+        inline_attachment_hashes = self._collect_attachment_hashes_from_text_fields(case, data)
+        for hash_value in inline_attachment_hashes:
+            if hash_value not in data['attachments']:
+                data['attachments'].append(hash_value)
+                self.logger.log(f'[{self.project["code"]}][Tests] Added inline attachment hash {hash_value} to case {case["title"]}')
+        
         return data
 
     # Done

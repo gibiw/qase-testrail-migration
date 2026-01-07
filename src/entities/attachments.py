@@ -28,7 +28,10 @@ class Attachments:
         self.config = config
         self.mappings = mappings
         self.pools = pools
+        # Pattern for markdown format: ![](index.php?/attachments/get/123)
         self.pattern = r'!\[\]\(index\.php\?/attachments/get/([a-f0-9-]+)\)'
+        # Pattern for HTML img tags with various formats
+        self.html_img_pattern = r'<img[^>]*(?:src=["\']index\.php\?/attachments/get/([a-f0-9-]+)|data-attachment-id=["\']([a-f0-9-]+)|data-original-src=["\']index\.php\?/attachments/get/([a-f0-9-]+))[^>]*>'
 
     def check_and_replace_attachments(self, string: str, code: str, result_id: str = None, test_id: str = None) -> str:
         if string:
@@ -82,9 +85,33 @@ class Attachments:
         return result
 
     def check_attachments(self, string: str) -> List:
-        if (string):
-            return re.findall(r'index\.php\?/attachments/get/([a-f0-9-]+)', str(string))
-        return []
+        """
+        Extract attachment IDs from both markdown and HTML image formats.
+        Returns a list of unique attachment IDs found in the string.
+        """
+        if not string:
+            return []
+        
+        attachment_ids = set()
+        string_str = str(string)
+        
+        # Find markdown format: ![](index.php?/attachments/get/123)
+        markdown_matches = re.findall(r'index\.php\?/attachments/get/([a-f0-9-]+)', string_str)
+        attachment_ids.update(markdown_matches)
+        
+        # Find HTML img tags with src attribute: <img src="index.php?/attachments/get/123#_t=...">
+        html_src_matches = re.findall(r'<img[^>]*src=["\']index\.php\?/attachments/get/([a-f0-9-]+)', string_str)
+        attachment_ids.update(html_src_matches)
+        
+        # Find HTML img tags with data-attachment-id attribute: <img ... data-attachment-id="123">
+        html_data_id_matches = re.findall(r'<img[^>]*data-attachment-id=["\']([a-f0-9-]+)', string_str)
+        attachment_ids.update(html_data_id_matches)
+        
+        # Find HTML img tags with data-original-src attribute: <img ... data-original-src="index.php?/attachments/get/123">
+        html_data_src_matches = re.findall(r'<img[^>]*data-original-src=["\']index\.php\?/attachments/get/([a-f0-9-]+)', string_str)
+        attachment_ids.update(html_data_src_matches)
+        
+        return list(attachment_ids)
 
     def _get_attachment_meta(self, data) -> tuple:
         filename = "attachment"
@@ -96,18 +123,34 @@ class Attachments:
         return (filename, data.content)
 
     def replace_attachments(self, string: str, code: str, result_id: str = None, test_id: str = None) -> str:
+        """
+        Replace both markdown and HTML image references with Qase markdown format.
+        Converts: ![](index.php?/attachments/get/123) or <img src="..."> to ![filename](qase_url)
+        """
         string = re.sub(r'^E_', '', string)
         try:
-
+            # First, handle markdown format: ![](index.php?/attachments/get/123)
             matches = re.finditer(self.pattern, string)
             for match in matches:
                 attachment_id = match.group(1)
                 if attachment_id not in self.mappings.attachments_map:
                     self.logger.log(f'[{code}][Attachments] Attachment {attachment_id} not found in attachments_map', 'warning')
                     self.replace_failover(attachment_id, code, result_id, test_id)
-                string = self.replace_string(string, code, attachment_id)
-            else:
-                self.logger.log(f'[{code}][Attachments] No attachments found in a string {string}', 'warning')
+                string = self.replace_string_markdown(string, code, attachment_id)
+            
+            # Then, handle HTML img tags: <img src="index.php?/attachments/get/123" ...>
+            # Find all HTML img tags with attachment references
+            html_img_pattern = r'<img[^>]*(?:src=["\']index\.php\?/attachments/get/([a-f0-9-]+)|data-attachment-id=["\']([a-f0-9-]+)|data-original-src=["\']index\.php\?/attachments/get/([a-f0-9-]+))[^>]*>'
+            html_matches = list(re.finditer(html_img_pattern, string))
+            # Process matches in reverse order to avoid index shifting when replacing
+            for match in reversed(html_matches):
+                # Get the first non-None group (could be from src, data-attachment-id, or data-original-src)
+                attachment_id = next((g for g in match.groups() if g), None)
+                if attachment_id:
+                    if attachment_id not in self.mappings.attachments_map:
+                        self.logger.log(f'[{code}][Attachments] Attachment {attachment_id} not found in attachments_map (HTML)', 'warning')
+                        self.replace_failover(attachment_id, code, result_id, test_id)
+                    string = self.replace_string_html(string, code, attachment_id, match.group(0))
         except Exception as e:
             self.logger.log(f'[{code}][Attachments] Exception when replacing attachments in a string {string}: {e}', 'error')
         return string
@@ -134,12 +177,35 @@ class Attachments:
         except Exception as e:
             self.logger.log(f'[{code}][Attachments] Exception when calling Qase->upload_attachment in failover{result_info}: {e}', 'error')
 
-    def replace_string(self, string, code, attachment_id):
+    def replace_string_markdown(self, string, code, attachment_id):
+        """
+        Replace markdown format image reference with Qase markdown format.
+        Converts: ![](index.php?/attachments/get/123) to ![filename](qase_url)
+        """
+        if attachment_id not in self.mappings.attachments_map:
+            return string
         return re.sub(
-            f'!\\[\\]\\(index\\.php\\?/attachments/get/{attachment_id}\\)',
+            f'!\\[\\]\\(index\\.php\\?/attachments/get/{re.escape(attachment_id)}\\)',
             f'![{self.mappings.attachments_map[attachment_id]["filename"]}]({self.mappings.attachments_map[attachment_id]["url"]})',
             string
         )
+    
+    def replace_string_html(self, string, code, attachment_id, html_tag):
+        """
+        Replace HTML img tag with Qase markdown format.
+        Converts: <img src="index.php?/attachments/get/123" ...> to ![filename](qase_url)
+        """
+        if attachment_id not in self.mappings.attachments_map:
+            return string
+        
+        # Escape the HTML tag for regex
+        escaped_tag = re.escape(html_tag)
+        # Replace the entire HTML img tag with markdown
+        filename = self.mappings.attachments_map[attachment_id]["filename"]
+        url = self.mappings.attachments_map[attachment_id]["url"]
+        markdown = f'![{filename}]({url})'
+        
+        return re.sub(escaped_tag, markdown, string)
 
     def import_all_attachments(self) -> Mappings:
         return asyncio.run(self.import_all_attachments_async())
