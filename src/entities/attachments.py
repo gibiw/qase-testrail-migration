@@ -177,23 +177,48 @@ class Attachments:
         except Exception as e:
             self.logger.log(f'[{code}][Attachments] Exception when calling Qase->upload_attachment in failover{result_info}: {e}', 'error')
 
+    def _is_video_file(self, filename: str) -> bool:
+        """
+        Check if a file is a video based on its extension.
+        Returns True if the file extension indicates a video file.
+        """
+        if not filename:
+            return False
+        
+        video_extensions = {'.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.mkv', '.m4v', 
+                           '.3gp', '.ogv', '.mpg', '.mpeg', '.asf', '.rm', '.rmvb', '.vob'}
+        filename_lower = filename.lower()
+        return any(filename_lower.endswith(ext) for ext in video_extensions)
+    
     def replace_string_markdown(self, string, code, attachment_id):
         """
-        Replace markdown format image reference with Qase markdown format.
-        Converts: ![](index.php?/attachments/get/123) to ![filename](qase_url)
+        Replace markdown format image/video reference with Qase markdown format.
+        Converts: ![](index.php?/attachments/get/123) to ![filename](qase_url) for images
+        or [filename](qase_url) for videos
         """
         if attachment_id not in self.mappings.attachments_map:
             return string
+        
+        filename = self.mappings.attachments_map[attachment_id]["filename"]
+        url = self.mappings.attachments_map[attachment_id]["url"]
+        
+        # Use link format for videos, image format for other files
+        if self._is_video_file(filename):
+            markdown = f'[{filename}]({url})'
+        else:
+            markdown = f'![{filename}]({url})'
+        
         return re.sub(
             f'!\\[\\]\\(index\\.php\\?/attachments/get/{re.escape(attachment_id)}\\)',
-            f'![{self.mappings.attachments_map[attachment_id]["filename"]}]({self.mappings.attachments_map[attachment_id]["url"]})',
+            markdown,
             string
         )
     
     def replace_string_html(self, string, code, attachment_id, html_tag):
         """
         Replace HTML img tag with Qase markdown format.
-        Converts: <img src="index.php?/attachments/get/123" ...> to ![filename](qase_url)
+        Converts: <img src="index.php?/attachments/get/123" ...> to ![filename](qase_url) for images
+        or [filename](qase_url) for videos
         """
         if attachment_id not in self.mappings.attachments_map:
             return string
@@ -203,7 +228,12 @@ class Attachments:
         # Replace the entire HTML img tag with markdown
         filename = self.mappings.attachments_map[attachment_id]["filename"]
         url = self.mappings.attachments_map[attachment_id]["url"]
-        markdown = f'![{filename}]({url})'
+        
+        # Use link format for videos, image format for other files
+        if self._is_video_file(filename):
+            markdown = f'[{filename}]({url})'
+        else:
+            markdown = f'![{filename}]({url})'
         
         return re.sub(escaped_tag, markdown, string)
 
