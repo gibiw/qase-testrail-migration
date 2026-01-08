@@ -356,26 +356,52 @@ class Cases:
         self.logger.log(
             f'[{self.project["code"]}][Tests] Found {len(attachments["attachments"])} case-level attachments for case {case["title"]}')
         
+        # Collect inline attachment IDs from text fields FIRST
+        # This ensures we can check if attachments are already referenced in fields
+        # before adding them to case-level attachments to avoid duplication
+        inline_attachment_ids = self._collect_attachment_ids_from_text_fields(case, data)
+        # Normalize to strings for comparison (check_attachments returns strings)
+        inline_attachment_ids = {str(id) for id in inline_attachment_ids}
+        self.logger.log(f'[{self.project["code"]}][Tests] Found {len(inline_attachment_ids)} inline attachment IDs in text fields: {inline_attachment_ids}')
+        
         # Only add case-level attachments (explicitly attached to the case in TestRail)
+        # that are NOT already referenced in any text field to avoid duplication
         # Inline attachments (referenced only in text fields) should NOT be added here
         # They will remain inline in their respective fields via markdown
         case_level_attachment_ids = set()
         for attachment in attachments['attachments']:
             try:
-                id = attachment['id']
-                if 'data_id' in attachment:
-                    id = attachment['data_id']
-                case_level_attachment_ids.add(id)
-                if id in self.mappings.attachments_map:
-                    data['attachments'].append(self.mappings.attachments_map[id]['hash'])
-                    self.logger.log(f'[{self.project["code"]}][Tests] Added case-level attachment {id} (hash: {self.mappings.attachments_map[id]["hash"]}) to case {case["title"]}')
+                # Get the attachment ID (prefer data_id if available, otherwise use id)
+                attachment_id = attachment.get('data_id') or attachment.get('id')
+                if attachment_id is None:
+                    self.logger.log(f'[{self.project["code"]}][Tests] Warning: Attachment has no id or data_id: {attachment}', 'warning')
+                    continue
+                
+                # Normalize to string for comparison
+                attachment_id_str = str(attachment_id)
+                case_level_attachment_ids.add(attachment_id_str)
+                
+                # Check if this attachment is already referenced in text fields
+                if attachment_id_str in inline_attachment_ids:
+                    self.logger.log(f'[{self.project["code"]}][Tests] Skipped case-level attachment {attachment_id_str} for case {case["title"]} - already referenced in text fields')
+                    continue
+                
+                # Only add to case-level attachments if it's in the attachments_map
+                # Check both string and int versions of the ID
+                attachment_key = None
+                if attachment_id_str in self.mappings.attachments_map:
+                    attachment_key = attachment_id_str
+                elif attachment_id in self.mappings.attachments_map:
+                    attachment_key = attachment_id
+                
+                if attachment_key and attachment_key in self.mappings.attachments_map:
+                    data['attachments'].append(self.mappings.attachments_map[attachment_key]['hash'])
+                    self.logger.log(f'[{self.project["code"]}][Tests] Added case-level attachment {attachment_id_str} (hash: {self.mappings.attachments_map[attachment_key]["hash"]}) to case {case["title"]}')
+                else:
+                    self.logger.log(f'[{self.project["code"]}][Tests] Warning: Case-level attachment {attachment_id_str} not found in attachments_map for case {case["title"]}', 'warning')
             except Exception as e:
                 self.logger.log(
                     f'[{self.project["code"]}][Tests] Failed to get attachment for case {case["title"]}: {e}', 'error')
-        
-        # Collect inline attachment IDs from text fields for logging/debugging
-        # These are NOT added to data['attachments'] - they remain inline only
-        inline_attachment_ids = self._collect_attachment_ids_from_text_fields(case, data)
         
         # Log which attachments are inline-only vs case-level
         inline_only_ids = inline_attachment_ids - case_level_attachment_ids
@@ -386,6 +412,7 @@ class Cases:
         both_level_ids = inline_attachment_ids & case_level_attachment_ids
         if both_level_ids:
             self.logger.log(f'[{self.project["code"]}][Tests] Found {len(both_level_ids)} attachments that are both case-level and inline for case {case["title"]}: {both_level_ids}')
+            self.logger.log(f'[{self.project["code"]}][Tests] These attachments were skipped from case-level to avoid duplication')
         
         return data
 
