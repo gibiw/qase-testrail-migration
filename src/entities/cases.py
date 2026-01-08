@@ -294,6 +294,57 @@ class Cases:
         
         return attachment_hashes
 
+    def _collect_attachment_ids_from_text_fields(self, case: dict, data: dict) -> set:
+        """
+        Collect attachment IDs (not hashes) from all text fields that may contain inline attachment references.
+        This is used to distinguish between case-level attachments and inline-only attachments.
+        
+        Returns a set of attachment IDs found in text fields.
+        """
+        attachment_ids = set()
+        
+        # Collect from custom fields (description, preconditions, etc.) in original case data
+        for field_name in case:
+            if field_name.startswith('custom_'):
+                field_value = case[field_name]
+                if field_value:
+                    # Extract attachment IDs from this field
+                    found_ids = self.attachments.check_attachments(str(field_value))
+                    attachment_ids.update(found_ids)
+        
+        # Collect from steps in original case data (before processing)
+        # Check for BDD scenario steps
+        if 'custom_testrail_bdd_scenario' in case and case['custom_testrail_bdd_scenario']:
+            try:
+                parsed_data = json.loads(case['custom_testrail_bdd_scenario'])
+                for step in parsed_data:
+                    if 'content' in step and step['content']:
+                        found_ids = self.attachments.check_attachments(str(step['content']))
+                        attachment_ids.update(found_ids)
+            except Exception:
+                pass  # Invalid JSON, skip
+        
+        # Check for step fields (custom_step_results, etc.)
+        for field_name in case:
+            if field_name.startswith('custom_') and field_name[len('custom_'):] in self.mappings.step_fields and case[field_name]:
+                for step in case[field_name]:
+                    # Check content (action)
+                    if 'content' in step and step['content']:
+                        found_ids = self.attachments.check_attachments(str(step['content']))
+                        attachment_ids.update(found_ids)
+                    
+                    # Check expected result
+                    if 'expected' in step and step['expected']:
+                        found_ids = self.attachments.check_attachments(str(step['expected']))
+                        attachment_ids.update(found_ids)
+                    
+                    # Check additional_info (data)
+                    if 'additional_info' in step and step['additional_info']:
+                        found_ids = self.attachments.check_attachments(str(step['additional_info']))
+                        attachment_ids.update(found_ids)
+        
+        return attachment_ids
+
     async def _get_attachments_for_case(self, case: dict, data: dict) -> dict:
         self.logger.log(f'[{self.project["code"]}][Tests] Getting attachments for case {case["title"]}')
         try:
@@ -303,26 +354,38 @@ class Cases:
                             'error')
             return data
         self.logger.log(
-            f'[{self.project["code"]}][Tests] Found {len(attachments["attachments"])} attachments for case {case["title"]}')
+            f'[{self.project["code"]}][Tests] Found {len(attachments["attachments"])} case-level attachments for case {case["title"]}')
+        
+        # Only add case-level attachments (explicitly attached to the case in TestRail)
+        # Inline attachments (referenced only in text fields) should NOT be added here
+        # They will remain inline in their respective fields via markdown
+        case_level_attachment_ids = set()
         for attachment in attachments['attachments']:
             try:
                 id = attachment['id']
                 if 'data_id' in attachment:
                     id = attachment['data_id']
+                case_level_attachment_ids.add(id)
                 if id in self.mappings.attachments_map:
                     data['attachments'].append(self.mappings.attachments_map[id]['hash'])
+                    self.logger.log(f'[{self.project["code"]}][Tests] Added case-level attachment {id} (hash: {self.mappings.attachments_map[id]["hash"]}) to case {case["title"]}')
             except Exception as e:
                 self.logger.log(
                     f'[{self.project["code"]}][Tests] Failed to get attachment for case {case["title"]}: {e}', 'error')
         
-        # Collect attachment hashes from inline references in text fields
-        # This ensures attachments referenced in markdown (description, preconditions, steps, etc.)
-        # are registered in Qase so case creation doesn't fail with "attachment not found" errors
-        inline_attachment_hashes = self._collect_attachment_hashes_from_text_fields(case, data)
-        for hash_value in inline_attachment_hashes:
-            if hash_value not in data['attachments']:
-                data['attachments'].append(hash_value)
-                self.logger.log(f'[{self.project["code"]}][Tests] Added inline attachment hash {hash_value} to case {case["title"]}')
+        # Collect inline attachment IDs from text fields for logging/debugging
+        # These are NOT added to data['attachments'] - they remain inline only
+        inline_attachment_ids = self._collect_attachment_ids_from_text_fields(case, data)
+        
+        # Log which attachments are inline-only vs case-level
+        inline_only_ids = inline_attachment_ids - case_level_attachment_ids
+        if inline_only_ids:
+            self.logger.log(f'[{self.project["code"]}][Tests] Found {len(inline_only_ids)} inline-only attachments for case {case["title"]} (not added to case-level attachments): {inline_only_ids}')
+        
+        # Also log attachments that are both case-level and inline (appear in both places)
+        both_level_ids = inline_attachment_ids & case_level_attachment_ids
+        if both_level_ids:
+            self.logger.log(f'[{self.project["code"]}][Tests] Found {len(both_level_ids)} attachments that are both case-level and inline for case {case["title"]}: {both_level_ids}')
         
         return data
 
