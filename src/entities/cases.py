@@ -296,52 +296,39 @@ class Cases:
 
     def _collect_attachment_ids_from_text_fields(self, case: dict, data: dict) -> set:
         """
-        Collect attachment IDs (not hashes) from all text fields that may contain inline attachment references.
-        This is used to distinguish between case-level attachments and inline-only attachments.
-        
+        Collect attachment IDs from all text fields that may contain inline attachment references.
         Returns a set of attachment IDs found in text fields.
         """
         attachment_ids = set()
         
-        # Collect from custom fields (description, preconditions, etc.) in original case data
-        for field_name in case:
-            if field_name.startswith('custom_'):
-                field_value = case[field_name]
-                if field_value:
-                    # Extract attachment IDs from this field
-                    found_ids = self.attachments.check_attachments(str(field_value))
-                    attachment_ids.update(found_ids)
+        def extract_from_text(text: str) -> None:
+            """Helper to extract attachment IDs from text and add to set."""
+            if text:
+                attachment_ids.update(self.attachments.check_attachments(str(text)))
         
-        # Collect from steps in original case data (before processing)
-        # Check for BDD scenario steps
-        if 'custom_testrail_bdd_scenario' in case and case['custom_testrail_bdd_scenario']:
+        # Collect from custom fields (description, preconditions, etc.)
+        for field_name, field_value in case.items():
+            if field_name.startswith('custom_'):
+                extract_from_text(field_value)
+        
+        # Collect from BDD scenario steps
+        bdd_field = case.get('custom_testrail_bdd_scenario')
+        if bdd_field:
             try:
-                parsed_data = json.loads(case['custom_testrail_bdd_scenario'])
-                for step in parsed_data:
-                    if 'content' in step and step['content']:
-                        found_ids = self.attachments.check_attachments(str(step['content']))
-                        attachment_ids.update(found_ids)
-            except Exception:
+                for step in json.loads(bdd_field):
+                    extract_from_text(step.get('content'))
+            except (json.JSONDecodeError, TypeError):
                 pass  # Invalid JSON, skip
         
-        # Check for step fields (custom_step_results, etc.)
-        for field_name in case:
-            if field_name.startswith('custom_') and field_name[len('custom_'):] in self.mappings.step_fields and case[field_name]:
-                for step in case[field_name]:
-                    # Check content (action)
-                    if 'content' in step and step['content']:
-                        found_ids = self.attachments.check_attachments(str(step['content']))
-                        attachment_ids.update(found_ids)
-                    
-                    # Check expected result
-                    if 'expected' in step and step['expected']:
-                        found_ids = self.attachments.check_attachments(str(step['expected']))
-                        attachment_ids.update(found_ids)
-                    
-                    # Check additional_info (data)
-                    if 'additional_info' in step and step['additional_info']:
-                        found_ids = self.attachments.check_attachments(str(step['additional_info']))
-                        attachment_ids.update(found_ids)
+        # Collect from step fields (custom_step_results, etc.)
+        for field_name, field_value in case.items():
+            if (field_name.startswith('custom_') and 
+                field_name[7:] in self.mappings.step_fields and 
+                field_value):
+                for step in field_value:
+                    # Check all step text fields
+                    for step_field in ('content', 'expected', 'additional_info'):
+                        extract_from_text(step.get(step_field))
         
         return attachment_ids
 

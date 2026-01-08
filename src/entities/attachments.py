@@ -1,174 +1,148 @@
 import asyncio
+import re
+import os
+import json
+from typing import List, Optional, Set
+from urllib.parse import unquote
 
 from ..service import QaseService, TestrailService
 from ..support import Logger, Mappings, ConfigManager as Config, Pools
 
-from typing import List
-
-from urllib.parse import unquote
-
-import re
-import os
-import json
-
 
 class Attachments:
-    def __init__(
-            self,
-            qase_service: QaseService,
-            testrail_service: TestrailService,
-            logger: Logger,
-            mappings: Mappings,
-            config: Config,
-            pools: Pools,
-    ):
+    # Compiled regex patterns (class-level for performance, limited length to prevent ReDoS)
+    _ID_PATTERN = r'[a-f0-9-]{1,64}'
+    _MARKDOWN_PATTERN = re.compile(rf'!\[\]\(index\.php\?/attachments/get/({_ID_PATTERN})\)')
+    _HTML_ATTACHMENT_PATTERN = re.compile(
+        rf'(?:index\.php\?/attachments/get/|data-attachment-id=["\']|data-original-src=["\']index\.php\?/attachments/get/)({_ID_PATTERN})',
+        re.IGNORECASE
+    )
+    _HTML_IMG_PATTERN = re.compile(
+        rf'<img[^>]*(?:src=["\']index\.php\?/attachments/get/({_ID_PATTERN})'
+        rf'|data-attachment-id=["\']({_ID_PATTERN})'
+        rf'|data-original-src=["\']index\.php\?/attachments/get/({_ID_PATTERN}))[^>]*>',
+        re.IGNORECASE
+    )
+    _FILENAME_PATTERN = re.compile(r"filename\*=UTF-8''(.+?)(?:;|$)", re.IGNORECASE)
+    _PREFIX_PATTERN = re.compile(r'^E_')
+    _VIDEO_EXTENSIONS = frozenset(['.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.mkv', '.m4v',
+                                   '.3gp', '.ogv', '.mpg', '.mpeg', '.asf', '.rm', '.rmvb', '.vob'])
+    
+    def __init__(self, qase_service: QaseService, testrail_service: TestrailService,
+                 logger: Logger, mappings: Mappings, config: Config, pools: Pools):
         self.qase = qase_service
         self.testrail = testrail_service
         self.logger = logger
         self.config = config
         self.mappings = mappings
         self.pools = pools
-        # Pattern for markdown format: ![](index.php?/attachments/get/123)
-        self.pattern = r'!\[\]\(index\.php\?/attachments/get/([a-f0-9-]+)\)'
-        # Pattern for HTML img tags with various formats
-        self.html_img_pattern = r'<img[^>]*(?:src=["\']index\.php\?/attachments/get/([a-f0-9-]+)|data-attachment-id=["\']([a-f0-9-]+)|data-original-src=["\']index\.php\?/attachments/get/([a-f0-9-]+))[^>]*>'
 
     def check_and_replace_attachments(self, string: str, code: str, result_id: str = None, test_id: str = None) -> str:
-        if string:
-            attachments = self.check_attachments(string)
-            if (attachments):
-                return self.replace_attachments(string=string, code = code, result_id=result_id, test_id=test_id)
+        """Check for attachments and replace them if found."""
+        if not string:
+            return str(string)
+        if self.check_attachments(string):
+            return self.replace_attachments(string, code, result_id, test_id)
         return str(string)
 
-    def check_and_replace_attachments_from_string_array(self, string: str, code: str, result_id: str = None, test_id: str = None) -> list:
-        result = []
+    def _normalize_attachment_id(self, attachment_id: str) -> str:
+        """Remove 'E_' prefix if present."""
+        return self._PREFIX_PATTERN.sub('', str(attachment_id))
 
-        attachments = self.check_attachments(string)
-        for attachment in attachments:
-            try:
-                if attachment is None or isinstance(attachment, int):
-                    continue
-                if attachment:
-                    attachment = re.sub(r'^E_', '', str(attachment))
-                if attachment and attachment not in self.mappings.attachments_map:
-                    self.logger.log(f'[{code}][Attachments] Attachment {attachment} not found in attachments_map (array)',
-                                    'warning')
-                    self.replace_failover(attachment, code, result_id, test_id)
-                if attachment and attachment in self.mappings.attachments_map and self.mappings.attachments_map[
-                    attachment] and 'hash' in self.mappings.attachments_map[attachment]:
-                    result.append(self.mappings.attachments_map[attachment]['hash'])
-            except Exception as e:
-                self.logger.log(f'[{code}][Attachments] Error processing attachment {attachment}: {e}', 'error')
+    def _get_attachment_hash(self, attachment_id: str, code: str, result_id: str = None, test_id: str = None) -> Optional[str]:
+        """Get attachment hash from map, with failover if not found."""
+        normalized_id = self._normalize_attachment_id(attachment_id)
+        
+        if normalized_id not in self.mappings.attachments_map:
+            self.logger.log(f'[{code}][Attachments] Attachment {normalized_id} not found in attachments_map', 'warning')
+            self.replace_failover(normalized_id, code, result_id, test_id)
+        
+        attachment_data = self.mappings.attachments_map.get(normalized_id)
+        if attachment_data and 'hash' in attachment_data:
+            return attachment_data['hash']
+        return None
+
+    def check_and_replace_attachments_from_string_array(self, string: str, code: str, result_id: str = None, test_id: str = None) -> list:
+        """Extract attachment hashes from a string containing attachment references."""
+        result = []
+        for aid in self.check_attachments(string):
+            if aid and not isinstance(aid, int):
+                h = self._get_attachment_hash(aid, code, result_id, test_id)
+                if h:
+                    result.append(h)
         return result
 
     def check_and_replace_attachments_array(self, attachments: list, code: str, result_id: str = None, test_id: str = None) -> list:
+        """Convert a list of attachment IDs to their corresponding hashes."""
         result = []
         for attachment in attachments:
-            self.logger.log(f'[{code}][Attachments] Checking attachment: {attachment} in attachments_array')
-            try:
-                if attachment is None:
-                    continue
-                if attachment:
-                    attachment = re.sub(r'^E_', '', str(attachment))
-                if attachment and attachment not in self.mappings.attachments_map:
-                    self.logger.log(f'[{code}][Attachments] Attachment {attachment} not found in attachments_map (array) in check_and_replace_attachments_array',
-                                    'warning')
-                    self.replace_failover(attachment, code, result_id, test_id)
-                if attachment and attachment in self.mappings.attachments_map and self.mappings.attachments_map[
-                    attachment] and 'hash' in self.mappings.attachments_map[attachment]:
-                    self.logger.log(f'[{code}][Attachments] Attachment {attachment} found in attachments_map (array) in check_and_replace_attachments_array', 'info')
-                    result.append(self.mappings.attachments_map[attachment]['hash'])
-            except Exception as e:
-                self.logger.log(f'[{code}][Attachments] Error processing attachment {attachment} in check_and_replace_attachments_array: {e}', 'error')
-
-        self.logger.log(f'[{code}][Attachments] Result attachments in check_and_replace_attachments_array: {result}')
+            if attachment:
+                try:
+                    h = self._get_attachment_hash(self._normalize_attachment_id(attachment), code, result_id, test_id)
+                    if h:
+                        result.append(h)
+                except Exception as e:
+                    self.logger.log(f'[{code}][Attachments] Error processing attachment {attachment}: {e}', 'error')
         return result
 
-    def check_attachments(self, string: str) -> List:
+    def check_attachments(self, string: str) -> List[str]:
         """
         Extract attachment IDs from both markdown and HTML image formats.
         Returns a list of unique attachment IDs found in the string.
+        Optimized to use a single unified pattern for better performance.
         """
         if not string:
             return []
         
-        attachment_ids = set()
+        # Use unified pattern to find all attachment IDs in one pass
+        attachment_ids: Set[str] = set()
         string_str = str(string)
         
-        # Find markdown format: ![](index.php?/attachments/get/123)
-        markdown_matches = re.findall(r'index\.php\?/attachments/get/([a-f0-9-]+)', string_str)
-        attachment_ids.update(markdown_matches)
-        
-        # Find HTML img tags with src attribute: <img src="index.php?/attachments/get/123#_t=...">
-        html_src_matches = re.findall(r'<img[^>]*src=["\']index\.php\?/attachments/get/([a-f0-9-]+)', string_str)
-        attachment_ids.update(html_src_matches)
-        
-        # Find HTML img tags with data-attachment-id attribute: <img ... data-attachment-id="123">
-        html_data_id_matches = re.findall(r'<img[^>]*data-attachment-id=["\']([a-f0-9-]+)', string_str)
-        attachment_ids.update(html_data_id_matches)
-        
-        # Find HTML img tags with data-original-src attribute: <img ... data-original-src="index.php?/attachments/get/123">
-        html_data_src_matches = re.findall(r'<img[^>]*data-original-src=["\']index\.php\?/attachments/get/([a-f0-9-]+)', string_str)
-        attachment_ids.update(html_data_src_matches)
+        for match in self._MARKDOWN_PATTERN.finditer(string_str):
+            attachment_ids.add(match.group(1))
+        for match in self._HTML_ATTACHMENT_PATTERN.finditer(string_str):
+            attachment_ids.add(match.group(1))
         
         return list(attachment_ids)
 
     def _get_attachment_meta(self, data) -> tuple:
-        filename = "attachment"
-        filename_header = data.headers.get('Content-Disposition', '')
-        match = re.search(r"filename\*=UTF-8''(.+)", filename_header)
-        if match:
-            filename = unquote(match.group(1))
-
-        return (filename, data.content)
+        """Extract filename and content from attachment data."""
+        match = self._FILENAME_PATTERN.search(data.headers.get('Content-Disposition', ''))
+        return (unquote(match.group(1)) if match else "attachment", data.content)
 
     def replace_attachments(self, string: str, code: str, result_id: str = None, test_id: str = None) -> str:
         """
         Replace both markdown and HTML image references with Qase markdown format.
         Converts: ![](index.php?/attachments/get/123) or <img src="..."> to ![filename](qase_url)
         """
-        string = re.sub(r'^E_', '', string)
+        if not string:
+            return str(string)
+        
+        string = self._PREFIX_PATTERN.sub('', string)
         try:
-            # First, handle markdown format: ![](index.php?/attachments/get/123)
-            matches = re.finditer(self.pattern, string)
-            for match in matches:
+            for match in list(self._MARKDOWN_PATTERN.finditer(string)):
                 attachment_id = match.group(1)
                 if attachment_id not in self.mappings.attachments_map:
                     self.logger.log(f'[{code}][Attachments] Attachment {attachment_id} not found in attachments_map', 'warning')
                     self.replace_failover(attachment_id, code, result_id, test_id)
                 string = self.replace_string_markdown(string, code, attachment_id)
-            
-            # Then, handle HTML img tags: <img src="index.php?/attachments/get/123" ...>
-            # Find all HTML img tags with attachment references
-            html_img_pattern = r'<img[^>]*(?:src=["\']index\.php\?/attachments/get/([a-f0-9-]+)|data-attachment-id=["\']([a-f0-9-]+)|data-original-src=["\']index\.php\?/attachments/get/([a-f0-9-]+))[^>]*>'
-            html_matches = list(re.finditer(html_img_pattern, string))
-            # Process matches in reverse order to avoid index shifting when replacing
-            for match in reversed(html_matches):
-                # Get the first non-None group (could be from src, data-attachment-id, or data-original-src)
+            for match in reversed(list(self._HTML_IMG_PATTERN.finditer(string))):
                 attachment_id = next((g for g in match.groups() if g), None)
+                if attachment_id and attachment_id not in self.mappings.attachments_map:
+                    self.logger.log(f'[{code}][Attachments] Attachment {attachment_id} not found in attachments_map (HTML)', 'warning')
+                    self.replace_failover(attachment_id, code, result_id, test_id)
                 if attachment_id:
-                    if attachment_id not in self.mappings.attachments_map:
-                        self.logger.log(f'[{code}][Attachments] Attachment {attachment_id} not found in attachments_map (HTML)', 'warning')
-                        self.replace_failover(attachment_id, code, result_id, test_id)
                     string = self.replace_string_html(string, code, attachment_id, match.group(0))
         except Exception as e:
-            self.logger.log(f'[{code}][Attachments] Exception when replacing attachments in a string {string}: {e}', 'error')
+            self.logger.log(f'[{code}][Attachments] Exception when replacing attachments: {e}', 'error')
         return string
 
-    def replace_failover(self, attachment_id, code: str, result_id: str = None, test_id: str = None):
+    def replace_failover(self, attachment_id: str, code: str, result_id: str = None, test_id: str = None):
+        """Upload attachment on-demand if not found in map."""
         try:
-            result_info = ''
-            if result_id is not None or test_id is not None:
-                result_parts = []
-                if result_id is not None:
-                    result_parts.append(f'result_id={result_id}')
-                if test_id is not None:
-                    result_parts.append(f'test_id={test_id}')
-                result_info = f' for result ({", ".join(result_parts)})'
+            result_info = f' for result ({", ".join([f"result_id={result_id}", f"test_id={test_id}"][:bool(result_id) + bool(test_id)])})' if (result_id or test_id) else ''
             self.logger.log(f'[{code}][Attachments] Replacing attachment {attachment_id} in failover{result_info}')
-            attachment_data = self.testrail.get_attachment(attachment_id)
-            attachment_data = self._get_attachment_meta(attachment_data)
-            qase_attachment = self.qase.upload_attachment(code, attachment_data)
+            qase_attachment = self.qase.upload_attachment(code, self._get_attachment_meta(self.testrail.get_attachment(attachment_id)))
             if qase_attachment:
                 self.mappings.attachments_map[attachment_id] = qase_attachment
                 self.logger.log(f'[{code}][Attachments] Attachment {attachment_id} replaced in failover{result_info}')
@@ -178,63 +152,39 @@ class Attachments:
             self.logger.log(f'[{code}][Attachments] Exception when calling Qase->upload_attachment in failover{result_info}: {e}', 'error')
 
     def _is_video_file(self, filename: str) -> bool:
-        """
-        Check if a file is a video based on its extension.
-        Returns True if the file extension indicates a video file.
-        """
-        if not filename:
-            return False
-        
-        video_extensions = {'.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.mkv', '.m4v', 
-                           '.3gp', '.ogv', '.mpg', '.mpeg', '.asf', '.rm', '.rmvb', '.vob'}
-        filename_lower = filename.lower()
-        return any(filename_lower.endswith(ext) for ext in video_extensions)
+        """Check if a file is a video based on its extension."""
+        return filename and filename.lower().endswith(tuple(self._VIDEO_EXTENSIONS))
     
-    def replace_string_markdown(self, string, code, attachment_id):
-        """
-        Replace markdown format image/video reference with Qase markdown format.
-        Converts: ![](index.php?/attachments/get/123) to ![filename](qase_url) for images
-        or [filename](qase_url) for videos
-        """
+    def _get_markdown_for_attachment(self, attachment_id: str) -> Optional[str]:
+        """Get markdown representation for an attachment."""
         if attachment_id not in self.mappings.attachments_map:
-            return string
+            return None
         
-        filename = self.mappings.attachments_map[attachment_id]["filename"]
-        url = self.mappings.attachments_map[attachment_id]["url"]
+        attachment_data = self.mappings.attachments_map[attachment_id]
+        filename = attachment_data["filename"]
+        url = attachment_data["url"]
         
         # Use link format for videos, image format for other files
-        if self._is_video_file(filename):
-            markdown = f'[{filename}]({url})'
-        else:
-            markdown = f'![{filename}]({url})'
-        
-        return re.sub(
-            f'!\\[\\]\\(index\\.php\\?/attachments/get/{re.escape(attachment_id)}\\)',
-            markdown,
-            string
-        )
+        return f'[{filename}]({url})' if self._is_video_file(filename) else f'![{filename}]({url})'
     
-    def replace_string_html(self, string, code, attachment_id, html_tag):
-        """
-        Replace HTML img tag with Qase markdown format.
-        Converts: <img src="index.php?/attachments/get/123" ...> to ![filename](qase_url) for images
-        or [filename](qase_url) for videos
-        """
-        if attachment_id not in self.mappings.attachments_map:
+    def replace_string_markdown(self, string: str, code: str, attachment_id: str) -> str:
+        """Replace markdown format image/video reference with Qase markdown format."""
+        markdown = self._get_markdown_for_attachment(attachment_id)
+        if not markdown:
             return string
         
-        # Escape the HTML tag for regex
+        # Use compiled pattern for replacement
+        pattern = re.compile(f'!\\[\\]\\(index\\.php\\?/attachments/get/{re.escape(attachment_id)}\\)')
+        return pattern.sub(markdown, string)
+    
+    def replace_string_html(self, string: str, code: str, attachment_id: str, html_tag: str) -> str:
+        """Replace HTML img tag with Qase markdown format."""
+        markdown = self._get_markdown_for_attachment(attachment_id)
+        if not markdown:
+            return string
+        
+        # Escape the HTML tag for regex and replace
         escaped_tag = re.escape(html_tag)
-        # Replace the entire HTML img tag with markdown
-        filename = self.mappings.attachments_map[attachment_id]["filename"]
-        url = self.mappings.attachments_map[attachment_id]["url"]
-        
-        # Use link format for videos, image format for other files
-        if self._is_video_file(filename):
-            markdown = f'[{filename}]({url})'
-        else:
-            markdown = f'![{filename}]({url})'
-        
         return re.sub(escaped_tag, markdown, string)
 
     def import_all_attachments(self) -> Mappings:
