@@ -206,7 +206,6 @@ class Cases:
             self.logger.log(f'[{self.project["code"]}][Tests] Case: {case}',)
             self.logger.log(f'[{self.project["code"]}][Tests] Data: {data}', )
 
-    # Done
     def _set_refs(self, case: dict, data: dict) -> dict:
         if not (self.mappings.refs_id and case.get('refs') and self.config.get('tests.refs.enable')):
             return data
@@ -216,7 +215,6 @@ class Cases:
 
         processed_refs = [self._get_ref(ref, url) for ref in refs]
         data['custom_field'][str(self.mappings.refs_id)] = '\n'.join(processed_refs)
-
         return data
 
     @staticmethod
@@ -225,8 +223,6 @@ class Cases:
             link_url = quote(ref, safe="/:")
         else:
             link_url = quote(f"{url}/{ref}", safe="/:")
-        
-        # Wrap in markdown link format
         return f"[{ref}]({link_url})"
 
     def _collect_attachment_hashes_from_text_fields(self, case: dict, data: dict) -> set:
@@ -242,19 +238,17 @@ class Cases:
         """
         attachment_hashes = set()
         
-        # Collect from custom fields (description, preconditions, etc.) in original case data
+        # Collect from custom fields
         for field_name in case:
             if field_name.startswith('custom_'):
                 field_value = case[field_name]
                 if field_value:
-                    # Extract attachment IDs from this field (before markdown replacement)
                     attachment_ids = self.attachments.check_attachments(str(field_value))
                     for attachment_id in attachment_ids:
                         if attachment_id in self.mappings.attachments_map:
                             attachment_hashes.add(self.mappings.attachments_map[attachment_id]['hash'])
         
-        # Collect from steps in original case data (before processing)
-        # Check for BDD scenario steps
+        # Collect from BDD scenario steps
         if 'custom_testrail_bdd_scenario' in case and case['custom_testrail_bdd_scenario']:
             try:
                 parsed_data = json.loads(case['custom_testrail_bdd_scenario'])
@@ -267,25 +261,22 @@ class Cases:
             except Exception:
                 pass  # Invalid JSON, skip
         
-        # Check for step fields (custom_step_results, etc.)
+        # Collect from step fields
         for field_name in case:
             if field_name.startswith('custom_') and field_name[len('custom_'):] in self.mappings.step_fields and case[field_name]:
                 for step in case[field_name]:
-                    # Check content (action)
                     if 'content' in step and step['content']:
                         attachment_ids = self.attachments.check_attachments(str(step['content']))
                         for attachment_id in attachment_ids:
                             if attachment_id in self.mappings.attachments_map:
                                 attachment_hashes.add(self.mappings.attachments_map[attachment_id]['hash'])
                     
-                    # Check expected result
                     if 'expected' in step and step['expected']:
                         attachment_ids = self.attachments.check_attachments(str(step['expected']))
                         for attachment_id in attachment_ids:
                             if attachment_id in self.mappings.attachments_map:
                                 attachment_hashes.add(self.mappings.attachments_map[attachment_id]['hash'])
                     
-                    # Check additional_info (data)
                     if 'additional_info' in step and step['additional_info']:
                         attachment_ids = self.attachments.check_attachments(str(step['additional_info']))
                         for attachment_id in attachment_ids:
@@ -306,7 +297,7 @@ class Cases:
             if text:
                 attachment_ids.update(self.attachments.check_attachments(str(text)))
         
-        # Collect from custom fields (description, preconditions, etc.)
+        # Collect from custom fields
         for field_name, field_value in case.items():
             if field_name.startswith('custom_'):
                 extract_from_text(field_value)
@@ -320,13 +311,12 @@ class Cases:
             except (json.JSONDecodeError, TypeError):
                 pass  # Invalid JSON, skip
         
-        # Collect from step fields (custom_step_results, etc.)
+        # Collect from step fields
         for field_name, field_value in case.items():
             if (field_name.startswith('custom_') and 
                 field_name[7:] in self.mappings.step_fields and 
                 field_value):
                 for step in field_value:
-                    # Check all step text fields
                     for step_field in ('content', 'expected', 'additional_info'):
                         extract_from_text(step.get(step_field))
         
@@ -343,45 +333,26 @@ class Cases:
         self.logger.log(
             f'[{self.project["code"]}][Tests] Found {len(attachments["attachments"])} case-level attachments for case {case["title"]}')
         
-        # Collect inline attachment IDs from text fields FIRST
-        # This ensures we can check if attachments are already referenced in fields
-        # before adding them to case-level attachments to avoid duplication
         inline_attachment_ids = self._collect_attachment_ids_from_text_fields(case, data)
-        # Normalize to strings for comparison (check_attachments returns strings)
         inline_attachment_ids = {str(id) for id in inline_attachment_ids}
         self.logger.log(f'[{self.project["code"]}][Tests] Found {len(inline_attachment_ids)} inline attachment IDs in text fields: {inline_attachment_ids}')
         
-        # Only add case-level attachments (explicitly attached to the case in TestRail)
-        # that are NOT already referenced in any text field to avoid duplication
-        # Inline attachments (referenced only in text fields) should NOT be added here
-        # They will remain inline in their respective fields via markdown
         case_level_attachment_ids = set()
         for attachment in attachments['attachments']:
             try:
-                # Get the attachment ID (prefer data_id if available, otherwise use id)
                 attachment_id = attachment.get('data_id') or attachment.get('id')
                 if attachment_id is None:
                     self.logger.log(f'[{self.project["code"]}][Tests] Warning: Attachment has no id or data_id: {attachment}', 'warning')
                     continue
                 
-                # Normalize to string for comparison
                 attachment_id_str = str(attachment_id)
                 case_level_attachment_ids.add(attachment_id_str)
                 
-                # Check if this attachment is already referenced in text fields
                 if attachment_id_str in inline_attachment_ids:
                     self.logger.log(f'[{self.project["code"]}][Tests] Skipped case-level attachment {attachment_id_str} for case {case["title"]} - already referenced in text fields')
                     continue
-                
-                # Only add to case-level attachments if it's in the attachments_map
-                # Check both string and int versions of the ID
-                attachment_key = None
-                if attachment_id_str in self.mappings.attachments_map:
-                    attachment_key = attachment_id_str
-                elif attachment_id in self.mappings.attachments_map:
-                    attachment_key = attachment_id
-                
-                if attachment_key and attachment_key in self.mappings.attachments_map:
+                attachment_key = attachment_id_str if attachment_id_str in self.mappings.attachments_map else (attachment_id if attachment_id in self.mappings.attachments_map else None)
+                if attachment_key:
                     data['attachments'].append(self.mappings.attachments_map[attachment_key]['hash'])
                     self.logger.log(f'[{self.project["code"]}][Tests] Added case-level attachment {attachment_id_str} (hash: {self.mappings.attachments_map[attachment_key]["hash"]}) to case {case["title"]}')
                 else:
@@ -390,16 +361,13 @@ class Cases:
                 self.logger.log(
                     f'[{self.project["code"]}][Tests] Failed to get attachment for case {case["title"]}: {e}', 'error')
         
-        # Log which attachments are inline-only vs case-level
         inline_only_ids = inline_attachment_ids - case_level_attachment_ids
         if inline_only_ids:
             self.logger.log(f'[{self.project["code"]}][Tests] Found {len(inline_only_ids)} inline-only attachments for case {case["title"]} (not added to case-level attachments): {inline_only_ids}')
         
-        # Also log attachments that are both case-level and inline (appear in both places)
         both_level_ids = inline_attachment_ids & case_level_attachment_ids
         if both_level_ids:
             self.logger.log(f'[{self.project["code"]}][Tests] Found {len(both_level_ids)} attachments that are both case-level and inline for case {case["title"]}: {both_level_ids}')
-            self.logger.log(f'[{self.project["code"]}][Tests] These attachments were skipped from case-level to avoid duplication')
         
         return data
 
@@ -431,15 +399,11 @@ class Cases:
                                     data['custom_field'][str(custom_field['qase_id'])] = str(qase_id)
                                     self.logger.log(f'[{self.project["code"]}][Tests] Set field {custom_field["name"]} using mapping {value} -> {qase_id}')
                                 else:
-                                    # Fallback - use value directly without +1 offset
                                     data['custom_field'][str(custom_field['qase_id'])] = str(value)
                                     self.logger.log(f'[{self.project["code"]}][Tests] Set field {custom_field["name"]} to value: {str(value)}')
                             elif type(value) == list:
-                                # Multiple values - handle based on field type
-                                if custom_field['type_id'] == 12:  # multiselect
-                                    # For multiselect, pass comma-separated string
+                                if custom_field['type_id'] == 12:
                                     if not custom_field.get('project_id'):
-                                        # For global fields, use validated values directly
                                         validated_values = self._validate_custom_field_values(custom_field, value)
                                         if validated_values:
                                             # Convert validated TestRail values to Qase IDs
@@ -488,18 +452,15 @@ class Cases:
                                         data['custom_field'][str(custom_field['qase_id'])] = str(value[0])
                                         self.logger.log(f'[{self.project["code"]}][Tests] Set single select field {custom_field["name"]} to value: {str(value[0])}')
                     elif custom_field['type_id'] == 8:
-                        # Handle datepicker fields (type 8) - convert TestRail date format to ISO format
                         field_value = str(case[field_name])
                         converted_date = convert_testrail_date_to_iso(field_value)
                         data['custom_field'][str(custom_field['qase_id'])] = converted_date
                         self.logger.log(f'[{self.project["code"]}][Tests] Set datepicker field "{custom_field["name"]}" to converted date: "{converted_date}" (original: "{field_value}")')
                     else:
-                        # Process field: replace attachments, convert HTML to markdown, format links
                         field_value = str(self.attachments.check_and_replace_attachments(case[field_name], self.project['code']))
-                        field_value = html_to_markdown(field_value, remove_html=False)  # Convert HTML tags to markdown
+                        field_value = html_to_markdown(field_value, remove_html=False)
                         field_value = format_links_as_markdown(field_value)
                         
-                        # Special handling for preconds field - only set preconditions system field, skip custom field
                         if normalized_name == 'preconds':
                             data['preconditions'] = field_value
                             self.logger.log(f'[{self.project["code"]}][Tests] Set preconds field value to preconditions system field (skipped custom field)')
@@ -594,9 +555,8 @@ class Cases:
                         self.logger.log(f'[{self.project["code"]}][Tests] Set global datepicker field "{custom_field["name"]}" to converted date: "{converted_date}" (original: "{field_value}")')
                     else:
                         # Handle non-dropdown fields (text, number, etc.)
-                        # Process field: replace attachments, convert HTML to markdown, format links
                         field_value = str(self.attachments.check_and_replace_attachments(case[field_name], self.project['code']))
-                        field_value = html_to_markdown(field_value, remove_html=False)  # Convert HTML tags to markdown
+                        field_value = html_to_markdown(field_value, remove_html=False)
                         field_value = format_links_as_markdown(field_value)
                         
                         # Special handling for preconds field - only set preconditions system field, skip custom field
@@ -740,7 +700,6 @@ class Cases:
                     self.logger.log(
                         f'[{self.project["code"]}][Tests] Custom field {custom_field["name"]} has invalid value {item} (not in {list(values.keys())})',
                         'warning')
-                    # Don't add invalid values to filtered_values
 
             if filtered_values:
                 return filtered_values

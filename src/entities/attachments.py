@@ -10,7 +10,6 @@ from ..support import Logger, Mappings, ConfigManager as Config, Pools
 
 
 class Attachments:
-    # Compiled regex patterns (class-level for performance, limited length to prevent ReDoS)
     _ID_PATTERN = r'[a-f0-9-]{1,64}'
     _MARKDOWN_PATTERN = re.compile(rf'!\[\]\(index\.php\?/attachments/get/({_ID_PATTERN})\)')
     _HTML_ATTACHMENT_PATTERN = re.compile(
@@ -94,7 +93,6 @@ class Attachments:
         if not string:
             return []
         
-        # Use unified pattern to find all attachment IDs in one pass
         attachment_ids: Set[str] = set()
         string_str = str(string)
         
@@ -163,8 +161,6 @@ class Attachments:
         attachment_data = self.mappings.attachments_map[attachment_id]
         filename = attachment_data["filename"]
         url = attachment_data["url"]
-        
-        # Use link format for videos, image format for other files
         return f'[{filename}]({url})' if self._is_video_file(filename) else f'![{filename}]({url})'
     
     def replace_string_markdown(self, string: str, code: str, attachment_id: str) -> str:
@@ -173,7 +169,6 @@ class Attachments:
         if not markdown:
             return string
         
-        # Use compiled pattern for replacement
         pattern = re.compile(f'!\\[\\]\\(index\\.php\\?/attachments/get/{re.escape(attachment_id)}\\)')
         return pattern.sub(markdown, string)
     
@@ -183,7 +178,6 @@ class Attachments:
         if not markdown:
             return string
         
-        # Escape the HTML tag for regex and replace
         escaped_tag = re.escape(html_tag)
         return re.sub(escaped_tag, markdown, string)
 
