@@ -2,6 +2,7 @@ from ..support import ConfigManager, Logger, format_links_as_markdown
 
 import certifi
 import json
+import traceback
 
 
 from qase.api_client_v1.api_client import ApiClient
@@ -47,13 +48,24 @@ class QaseService:
         if config.get('qase.ssl') is None or config.get('qase.ssl'):
             ssl = 'https://'
         
+        # Determine delimiter: use '.' for qase.io (cloud), '-' for enterprise custom domains
+        main_host = config.get('qase.host')
         delimiter = '.'
-        if config.get('qase.enterprise') is not None and config.get('qase.enterprise'):
+        # Only use '-' delimiter for enterprise if host is NOT qase.io (custom enterprise domain)
+        if config.get('qase.enterprise') and main_host and main_host != 'qase.io':
             delimiter = '-'
+
+        api_host_v1 = f'{ssl}api{delimiter}{main_host}/v1'
+        api_host_v2 = f'{ssl}api{delimiter}{main_host}/v2'
+        
+        if self.logger:
+            self.logger.log(f'[Qase Service] Config - host: {main_host}, enterprise: {config.get("qase.enterprise")}, delimiter: {delimiter}')
+            self.logger.log(f'[Qase Service] API v1 URL: {api_host_v1}')
+            self.logger.log(f'[Qase Service] API v2 URL: {api_host_v2}')
 
         configuration = Configuration()
         configuration.api_key['TokenAuth'] = config.get('qase.api_token')
-        configuration.host = f'{ssl}api{delimiter}{config.get("qase.host")}/v1'
+        configuration.host = api_host_v1
         configuration.ssl_ca_cert = certifi.where()
 
         self.client = ApiClient(configuration)
@@ -61,7 +73,7 @@ class QaseService:
         # Initialize API v2 client with minimal configuration to avoid SSL issues
         configuration_v2 = ConfigurationV2()
         configuration_v2.api_key['TokenAuth'] = config.get('qase.api_token')
-        configuration_v2.host = f'{ssl}api{delimiter}{config.get("qase.host")}/v2'
+        configuration_v2.host = api_host_v2
         configuration_v2.ssl_ca_cert = certifi.where()
         
         # Create client with minimal configuration
@@ -73,12 +85,38 @@ class QaseService:
     def _get_users(self, limit=100, offset=0):
         try:
             api_instance = AuthorsApi(self.client)
+            if self.logger:
+                self.logger.log(f'[Qase Service] Calling get_authors with limit={limit}, offset={offset}', level='debug')
             # Get all authors.
             api_response = api_instance.get_authors(limit=limit, offset=offset, type="user")
             if api_response.status and api_response.result.entities:
+                if self.logger:
+                    self.logger.log(f'[Qase Service] get_authors successful, returned {len(api_response.result.entities)} users', level='debug')
                 return api_response.result.entities
         except ApiException as e:
-            self.logger.log("Exception when calling AuthorsApi->get_authors: %s\n" % e, 'error')
+            error_msg = f"Exception when calling AuthorsApi->get_authors: {e}"
+            if hasattr(e, 'status'):
+                error_msg += f" | Status: {e.status}"
+            if hasattr(e, 'reason'):
+                error_msg += f" | Reason: {e.reason}"
+            if hasattr(e, 'body'):
+                try:
+                    error_body = json.loads(e.body) if e.body else {}
+                    error_msg += f" | Body: {error_body}"
+                except:
+                    error_msg += f" | Body (raw): {str(e.body)[:500]}"
+            self.logger.log(error_msg, 'error')
+            # Log the URL that was attempted
+            if hasattr(e, 'url') or hasattr(self.client, 'configuration'):
+                try:
+                    attempted_url = getattr(e, 'url', None) or self.client.configuration.host
+                    self.logger.log(f'[Qase Service] Failed URL: {attempted_url}', 'error')
+                except:
+                    pass
+        except Exception as e:
+            error_msg = f"Unexpected error in _get_users: {type(e).__name__}: {str(e)}"
+            self.logger.log(error_msg, 'error')
+            self.logger.log(f'[Qase Service] Traceback: {traceback.format_exc()}', 'error')
 
     def get_all_users(self, limit=100):
         offset = 0

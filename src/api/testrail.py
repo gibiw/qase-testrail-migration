@@ -3,6 +3,7 @@ import time
 import requests
 import re
 import http.client
+import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from bs4 import BeautifulSoup
 from ..support.rate_limiter import RateLimiter
@@ -75,12 +76,37 @@ class TestrailApiClient:
 
     def send_request(self, request_method, uri, payload=None):
         url = self.__url + uri
+        method_name = request_method.__name__.upper()
+        
+        # Log request details (debug level)
+        self.logger.log(f'[TestRail API Request] {method_name} {url}', level='debug')
+        if payload:
+            self.logger.log(f'[TestRail API Request] Payload: {payload}', level='debug')
+        
         for attempt in range(self.max_retries + 1):
             try:
                 # Apply rate limiting before making the request
                 self.rate_limiter.wait_if_needed()
                 
                 response = request_method(url, headers=self.headers, data=payload)
+                
+                # Log response status (info level for visibility)
+                self.logger.log(f'[TestRail API] {method_name} {uri} -> Status: {response.status_code}')
+                
+                # Log detailed response information (debug level)
+                self.logger.log(f'[TestRail API Response] Full URL: {url}', level='debug')
+                self.logger.log(f'[TestRail API Response] Headers: {dict(response.headers)}', level='debug')
+                
+                # Log response body
+                try:
+                    response_text = response.text
+                    # Truncate very long responses for readability
+                    if len(response_text) > 5000:
+                        self.logger.log(f'[TestRail API Response] Body (truncated, {len(response_text)} chars): {response_text[:5000]}...', level='debug')
+                    else:
+                        self.logger.log(f'[TestRail API Response] Body: {response_text}', level='debug')
+                except Exception as e:
+                    self.logger.log(f'[TestRail API Response] Failed to read response body: {str(e)}', level='debug')
                 
                 if response.status_code == 429:
                     # Rate limit exceeded - wait and retry
@@ -108,8 +134,16 @@ class TestrailApiClient:
 
     def process_response(self, response, uri):
         try:
-            return response.json()
-        except:
+            json_data = response.json()
+            # Log parsed JSON response (truncate if too large)
+            json_str = json.dumps(json_data, indent=2)
+            if len(json_str) > 5000:
+                self.logger.log(f'[TestRail API Response] Parsed JSON (truncated, {len(json_str)} chars): {json_str[:5000]}...', level='debug')
+            else:
+                self.logger.log(f'[TestRail API Response] Parsed JSON: {json_str}', level='debug')
+            return json_data
+        except Exception as e:
+            self.logger.log(f'[TestRail API Response] Failed to parse JSON response: {str(e)} | Response text: {response.text[:500]}', level='debug')
             raise APIError('Failed to parse JSON response')
             
     def get_attachment(self, id):
