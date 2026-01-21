@@ -1,7 +1,8 @@
 import asyncio
 
 from ..service import QaseService, TestrailService
-from ..support import Logger, Mappings, Pools
+from ..support import Logger, Mappings, ConfigManager as Config, Pools, format_links_as_markdown, html_to_markdown
+from .attachments import Attachments
 
 
 class SharedSteps:
@@ -12,12 +13,17 @@ class SharedSteps:
             logger: Logger,
             mappings: Mappings,
             pools: Pools,
+            config: Config,
     ):
         self.qase = qase_service
         self.testrail = testrail_service
         self.logger = logger
         self.mappings = mappings
         self.pools = pools
+        self.config = config
+
+        # Initialize attachments handler
+        self.attachments = Attachments(self.qase, self.testrail, self.logger, self.mappings, self.config, self.pools)
 
         self.map = {}
         self.logger.divider()
@@ -53,11 +59,39 @@ class SharedSteps:
         return self.mappings
 
     async def create_shared_step(self, project, step, cnt):
+        # Process steps: replace attachments, convert HTML to markdown, format links
+        processed_steps = []
+        if step.get('custom_steps_separated'):
+            for step_item in step['custom_steps_separated']:
+                # Process action/content field
+                action = step_item.get('content', '')
+                if action:
+                    action = self.attachments.check_and_replace_attachments(action, project['code'])
+                    action = html_to_markdown(action, remove_html=False)
+                    action = format_links_as_markdown(action)
+                action = action.strip() if action else ''
+                
+                if action == '':
+                    action = 'No action'
+                
+                # Process expected field
+                expected = step_item.get('expected', '')
+                if expected:
+                    expected = self.attachments.check_and_replace_attachments(expected, project['code'])
+                    expected = html_to_markdown(expected, remove_html=False)
+                    expected = format_links_as_markdown(expected)
+                expected = expected.strip() if expected else None
+                
+                processed_steps.append({
+                    'content': action,
+                    'expected': expected
+                })
+        
         id = await self.pools.qs(
             self.qase.create_shared_step,
             project["code"],
             step['title'],
-            step['custom_steps_separated'],
+            processed_steps,
         )
         if id:
             self.mappings.stats.add_entity_count(project['code'], 'shared_steps', 'qase')

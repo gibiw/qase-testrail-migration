@@ -2,7 +2,7 @@ import asyncio
 import math
 
 from ..service import QaseService, TestrailService
-from ..support import Logger, Mappings, ConfigManager as Config, Pools, format_links_as_markdown
+from ..support import Logger, Mappings, ConfigManager as Config, Pools, format_links_as_markdown, html_to_markdown
 from .attachments import Attachments
 
 from datetime import datetime
@@ -124,8 +124,10 @@ class Runs:
         self.logger.log(f'[{self.project["code"]}][Runs] Items in index: {str(len(self.index))}')
 
     async def _import_run(self, run: list) -> None:
-        # Format description with tables and links
+        # Process description: replace attachments, convert HTML to markdown, format links
         if run.get('description'):
+            run['description'] = self.attachments.check_and_replace_attachments(run['description'], self.project['code'])
+            run['description'] = html_to_markdown(run['description'], remove_html=False)
             run['description'] = format_links_as_markdown(run['description'])
         
         # Load testrail tests from the run ()
@@ -228,9 +230,17 @@ class Runs:
             if result.get('comment'):
                 result_id = str(result.get('id')) if result.get('id') is not None else None
                 test_id = str(result.get('test_id')) if result.get('test_id') is not None else None
+                
+                # Extract attachment hashes for the attachments list
                 result['attachments'] = self.attachments.check_and_replace_attachments_from_string_array(
                     result['comment'], self.project['code'], result_id=result_id, test_id=test_id)
                 self.logger.log(f'[{self.project["code"]}][Runs][{result["id"]}] Result attachments: {result["attachments"]}')
+                
+                # Process comment text: replace attachments, convert HTML to markdown, format links
+                result['comment'] = self.attachments.check_and_replace_attachments(
+                    result['comment'], self.project['code'], result_id=result_id, test_id=test_id)
+                result['comment'] = html_to_markdown(result['comment'], remove_html=False)
+                result['comment'] = format_links_as_markdown(result['comment'])
 
             if result['status_id'] != 3:
                 if result.get('attachment_ids') and len(result['attachment_ids']) > 0:

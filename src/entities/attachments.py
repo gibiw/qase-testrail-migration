@@ -11,15 +11,18 @@ from ..support import Logger, Mappings, ConfigManager as Config, Pools
 
 class Attachments:
     _ID_PATTERN = r'[a-f0-9-]{1,64}'
+    # Pattern for markdown: ![](index.php?/attachments/get/123)
     _MARKDOWN_PATTERN = re.compile(rf'!\[\]\(index\.php\?/attachments/get/({_ID_PATTERN})\)')
+    # Pattern for HTML attachment references in various formats
     _HTML_ATTACHMENT_PATTERN = re.compile(
         rf'(?:index\.php\?/attachments/get/|data-attachment-id=["\']|data-original-src=["\']index\.php\?/attachments/get/)({_ID_PATTERN})',
         re.IGNORECASE
     )
+    # Pattern for HTML img tags with various src formats
     _HTML_IMG_PATTERN = re.compile(
-        rf'<img[^>]*(?:src=["\']index\.php\?/attachments/get/({_ID_PATTERN})'
-        rf'|data-attachment-id=["\']({_ID_PATTERN})'
-        rf'|data-original-src=["\']index\.php\?/attachments/get/({_ID_PATTERN}))[^>]*>',
+        rf'<img[^>]*(?:src=["\']index\.php\?/attachments/get/({_ID_PATTERN})["\']'
+        rf'|data-attachment-id=["\']({_ID_PATTERN})["\']'
+        rf'|data-original-src=["\']index\.php\?/attachments/get/({_ID_PATTERN})["\'])[^>]*>',
         re.IGNORECASE
     )
     _FILENAME_PATTERN = re.compile(r"filename\*=UTF-8''(.+?)(?:;|$)", re.IGNORECASE)

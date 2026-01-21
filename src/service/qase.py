@@ -375,7 +375,18 @@ class QaseService:
             data['configurations'] = run['configurations']
 
         if run['is_completed']:
-            data['end_time'] = datetime.fromtimestamp(run['completed_on']).strftime('%Y-%m-%d %H:%M:%S')
+            end_time = datetime.fromtimestamp(run['completed_on']).strftime('%Y-%m-%d %H:%M:%S')
+            start_time = data['start_time']
+            # Validate that end_time is after or equal to start_time
+            # Qase API requires: end_time >= start_time
+            if end_time >= start_time:
+                data['end_time'] = end_time
+            else:
+                # If end_time is before start_time, log warning and skip end_time
+                self.logger.log(
+                    f'Run "{run.get("name", "unknown")}" has end_time ({end_time}) before start_time ({start_time}). Skipping end_time.',
+                    'warning'
+                )
 
         if milestone_id:
             data['milestone_id'] = milestone_id

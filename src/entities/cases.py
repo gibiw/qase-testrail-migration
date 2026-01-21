@@ -182,6 +182,14 @@ class Cases:
                 data['custom_field'][str(self.mappings.testrail_original_id_field_id)] = str(original_id)
                 self.logger.log(f'[{self.project["code"]}][Tests] Stored original ID {original_id} in custom field for case {case["title"]}')
 
+            # Process standard description field if it exists
+            if case.get('description'):
+                description = self.attachments.check_and_replace_attachments(case['description'], self.project['code'])
+                description = html_to_markdown(description, remove_html=False)
+                description = format_links_as_markdown(description)
+                data['description'] = description
+                self.logger.log(f'[{self.project["code"]}][Tests] Processed description field for case {case["title"]}')
+            
             # import custom fields
             data = self._import_custom_fields_for_case(case=case, data=data)
             data = await self._get_attachments_for_case(case=case, data=data)

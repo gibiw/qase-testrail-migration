@@ -86,6 +86,7 @@ class TestRailImporterSync:
                 self.logger, 
                 self.mappings,
                 self.pools,
+                self.config,
             ).import_shared_steps(project)
 
             self.mappings = Milestones(
